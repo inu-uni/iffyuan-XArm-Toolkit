@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import atexit
+from datetime import datetime
+from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
@@ -34,6 +36,12 @@ CAMERA_CONFIGS: dict[str, dict[str, str]] = {
     },
 }
 
+# Human-readable names used in automatically generated recording filenames.
+CAMERA_NAMES: dict[str, str] = {
+    "327122075644": "arm",
+    "f1271506": "fix",
+}
+
 # Fallback for unknown serials (D435-series defaults).
 _DEFAULT_CONFIG: dict[str, str] = {
     "color_format": "RS2_FORMAT_RGB8",
@@ -62,7 +70,13 @@ class RealsenseEnv:
         * ``"rgbd"`` — return the RGBD image (colour + depth).
         * ``"pcd"``  — return RGBD image **and** the derived point cloud.
     record:
-        If ``True``, capture is recorded to ``debug.bag``.
+        If ``True``, capture is recorded to a ``.bag`` file.
+    record_path:
+        Recording directory. Relative paths are resolved against the current
+        working directory. Defaults to ``debug``.
+    record_file:
+        Recording filename. Defaults to
+        ``YYYYMMDD_HHMMSS_<camera>_debug.bag``.
     """
 
     def __init__(
@@ -70,6 +84,8 @@ class RealsenseEnv:
         serial: str,
         mode: Literal["rgb", "rgbd", "pcd"] = "rgbd",
         record: bool = False,
+        record_path: str | Path | None = None,
+        record_file: str | None = None,
     ) -> None:
         if mode not in VALID_MODES:
             raise ValueError(f"Invalid mode {mode!r}, expected one of {VALID_MODES}")
@@ -91,8 +107,27 @@ class RealsenseEnv:
         config = o3d.t.io.RealSenseSensorConfig(cfg_dict)
 
         self.rs = o3d.t.io.RealSenseSensor()
+        self.record_file: Path | None = None
         if record:
-            self.rs.init_sensor(config, 0, "debug.bag")
+            output_dir = Path(record_path) if record_path is not None else Path("debug")
+            output_dir = output_dir.expanduser()
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            if record_file is None:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                camera_name = CAMERA_NAMES.get(serial, "unknown")
+                record_file = f"{timestamp}_{camera_name}_debug.bag"
+
+            if Path(record_file).name != record_file:
+                raise ValueError(
+                    "record_file must be a filename without directory components"
+                )
+            if not record_file.lower().endswith(".bag"):
+                record_file = f"{record_file}.bag"
+
+            self.record_file = output_dir / record_file
+            logger.info("Recording RealSense capture to %s", self.record_file.resolve())
+            self.rs.init_sensor(config, 0, str(self.record_file))
             self.rs.start_capture(True)  # start recording with capture
         else:
             self.rs.init_sensor(config, 0)
@@ -186,3 +221,4 @@ if __name__ == "__main__":
         logger.error("Unexpected error:\n%s", traceback.format_exc())
     finally:
         cv2.destroyAllWindows()
+
