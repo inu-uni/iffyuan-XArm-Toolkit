@@ -221,4 +221,3 @@ if __name__ == "__main__":
         logger.error("Unexpected error:\n%s", traceback.format_exc())
     finally:
         cv2.destroyAllWindows()
-
