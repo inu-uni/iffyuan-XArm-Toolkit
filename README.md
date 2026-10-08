@@ -361,3 +361,7 @@ iffyuan-XArm-Toolkit/
 ├── pyproject.toml
 └── requirements.txt
 ```
+
+## 依赖说明
+
+本项目固定使用 `zarr==2.16.1`，其对应的 `numcodecs` 版本需要限制为 `<0.16`。
