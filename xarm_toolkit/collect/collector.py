@@ -3,7 +3,7 @@
 Manages the full collect loop:
   1. Init env / cameras / SpaceMouse
   2. Per-episode: reset → move to task start pos → wait for start signal
-     → record steps → save buffer → repeat
+     → record steps → confirm/save buffer → repeat
   3. Compute episode_ends metadata
 
 Features:
@@ -370,6 +370,44 @@ class Collector:
         time.sleep(1)
         return obs
 
+    def _confirm_episode_and_save(
+        self,
+        kb: _KeyboardListener,
+        current_ep: int,
+        steps: int,
+        buffer: dict[str, list],
+        data: zarr.Group,
+    ) -> bool:
+        """Ask whether to save a completed episode, then write it to Zarr."""
+        print(
+            f"\r\n  是否保存 Episode {current_ep}？"
+            " [y] 保存 | [n] 丢弃 | Ctrl+C 退出\r\n"
+        )
+
+        while True:
+            key = kb.get_key()
+
+            if key == "y":
+                logger.info("Episode %d: saving %d steps...", current_ep, steps)
+                for name, values in buffer.items():
+                    data[name].append(np.concatenate(values, axis=0))
+                logger.info("Episode %d saved (%d steps).", current_ep, steps)
+                return True
+
+            if key == "n":
+                logger.info(
+                    "Episode %d discarded by user (%d steps). "
+                    "Recorded video is retained.",
+                    current_ep,
+                    steps,
+                )
+                return False
+
+            if key == "\x03":
+                raise KeyboardInterrupt
+
+            time.sleep(0.05)
+
     # ------------------------------------------------------------------
     # Main collection loop
     # ------------------------------------------------------------------
@@ -417,8 +455,8 @@ class Collector:
                     stats = self._run_episode(current_ep, ep_idx, data, kb)
 
                     if stats is None:
-                        # 0 steps, episode skipped
-                        print(f"\r\n  Episode {current_ep}: 跳过 (0 steps)\r\n")
+                        # Empty or explicitly discarded episode
+                        print(f"\r\n  Episode {current_ep}: 未保存\r\n")
                     else:
                         # Successfully saved — update metadata & print summary
                         episodes_saved += 1
@@ -502,7 +540,7 @@ class Collector:
     ) -> EpisodeStats | None:
         """Record one episode.
 
-        Returns EpisodeStats on success, None if 0 steps recorded.
+        Returns EpisodeStats on success, None if the episode is not saved.
         Raises KeyboardInterrupt on Ctrl+C, other exceptions on hw error.
         """
         print(
@@ -660,7 +698,7 @@ class Collector:
             if vw_fix is not None:
                 vw_fix.release()
 
-        # --- Save buffer ---
+        # --- Confirm and save buffer ---
         if steps == 0:
             logger.warning("Episode %d: 0 steps, skipping save.", current_ep)
             return None
@@ -668,9 +706,15 @@ class Collector:
         duration = time.time() - t_start
         fps = steps / duration if duration > 0 else 0
 
-        logger.info("Episode %d: saving %d steps...", current_ep, steps)
-        for key, val in buffer.items():
-            data[key].append(np.concatenate(val, axis=0))
+        saved = self._confirm_episode_and_save(
+            kb=kb,
+            current_ep=current_ep,
+            steps=steps,
+            buffer=buffer,
+            data=data,
+        )
 
-        logger.info("Episode %d saved.", current_ep)
+        if not saved:
+            return None
+
         return EpisodeStats(steps=steps, duration=duration, fps=fps)

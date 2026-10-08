@@ -197,7 +197,9 @@ python scripts/collect_data.py --save-video --dataset datasets/demo.zarr
 | 操作 | 说明 |
 |------|------|
 | Space | 开始录制当前 episode |
-| Enter | 结束当前 episode |
+| Enter | 结束当前 episode，并进入保存确认 |
+| `y` / `Y` | 将当前 episode 写入 Zarr |
+| `n` / `N` | 丢弃当前 Zarr buffer；已录制视频仍保留 |
 | Ctrl+C | 中止采集 |
 
 ---
@@ -359,4 +361,3 @@ iffyuan-XArm-Toolkit/
 ├── pyproject.toml
 └── requirements.txt
 ```
-
