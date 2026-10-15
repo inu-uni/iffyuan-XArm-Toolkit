@@ -205,6 +205,9 @@ def convert(
 
         dataset.save_episode()
 
+    # 关闭 Parquet 写入器并写完元数据后，才能报告转换完成。
+    dataset.finalize()
+
     # --- 完成 ---
     elapsed = time.time() - t0
     print(f"\n{'=' * 60}")
