@@ -5,7 +5,7 @@
 
 用法::
 
-    python scripts/fix_zarr.py --input datasets/duck.zarr
+    python scripts/data/fix_zarr.py --input datasets/duck.zarr
 """
 
 from __future__ import annotations

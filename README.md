@@ -173,25 +173,25 @@ SpaceMouse 遥操作 + 双相机 + 力传感器 → Zarr 数据集。
 
 ```bash
 # 默认采集 rgbd，3 个 episode
-python scripts/collect_data.py --dataset datasets/demo.zarr
+python scripts/data/collect_data.py --dataset datasets/demo.zarr
 
 # 只采集 RGB
-python scripts/collect_data.py --cam-mode rgb --dataset datasets/rgb_only.zarr
+python scripts/data/collect_data.py --cam-mode rgb --dataset datasets/rgb_only.zarr
 
 # 指定任务初始偏移 + episode 数量
-python scripts/collect_data.py --start-bias 0 0 -200 --episodes 10 --dataset datasets/plug.zarr
+python scripts/data/collect_data.py --start-bias 0 0 -200 --episodes 10 --dataset datasets/plug.zarr
 
 # 带随机偏移（每个 episode 起始位置不同）
-python scripts/collect_data.py --start-bias 0 0 -200 --random-bias-x -50 70 --random-bias-y -20 10 --dataset datasets/plug.zarr
+python scripts/data/collect_data.py --start-bias 0 0 -200 --random-bias-x -50 70 --random-bias-y -20 10 --dataset datasets/plug.zarr
 
 # 夹爪始终闭合（stamp 类任务）
-python scripts/collect_data.py --start-bias 0 0 -270 --gripper-closed --dataset datasets/stamp.zarr
+python scripts/data/collect_data.py --start-bias 0 0 -270 --gripper-closed --dataset datasets/stamp.zarr
 
 # 启用力传感器
-python scripts/collect_data.py --force --dataset datasets/force_demo.zarr
+python scripts/data/collect_data.py --force --dataset datasets/force_demo.zarr
 
 # 保存视频回看
-python scripts/collect_data.py --save-video --dataset datasets/demo.zarr
+python scripts/data/collect_data.py --save-video --dataset datasets/demo.zarr
 ```
 
 | 操作 | 说明 |
@@ -215,7 +215,7 @@ cd lerobot && pip install -e . && cd ..
 
 **转换:**
 ```bash
-python scripts/convert_to_lerobot.py \
+python scripts/data/convert_to_lerobot.py \
     --input datasets/demo.zarr \
     --output lerobot_datasets/demo \
     --repo-id demo --fps 15 \
@@ -224,7 +224,7 @@ python scripts/convert_to_lerobot.py \
 
 **验证:**
 ```bash
-python scripts/verify_lerobot.py --path lerobot_datasets/demo --repo-id demo
+python scripts/data/verify_lerobot.py --path lerobot_datasets/demo --repo-id demo
 ```
 
 **LeRobot 字段映射:**
@@ -342,13 +342,16 @@ iffyuan-XArm-Toolkit/
 │   └── utils/
 │       └── logger.py           # 统一日志
 ├── scripts/
+│   ├── data/
+│   │   ├── collect_data.py         # 数据采集入口
+│   │   ├── convert_to_lerobot.py   # Zarr → LeRobot 数据转换
+│   │   ├── fix_zarr.py             # 修复 Zarr 数据集
+│   │   ├── verify_lerobot.py       # LeRobot 数据集验证
+│   │   └── upload_dataset.py       # 上传 LeRobot 数据集
 │   ├── test_cameras.py         # 相机验证
 │   ├── test_env.py             # 机械臂验证
 │   ├── web_control_demo.py     # Web 键盘遥操作
 │   ├── teleop_demo.py          # SpaceMouse 遥操作
-│   ├── collect_data.py         # 数据采集入口
-│   ├── convert_to_lerobot.py   # Zarr → LeRobot 数据转换
-│   ├── verify_lerobot.py       # 数据集验证（Zarr / LeRobot）
 │   ├── deploy_vla.py           # VLA 机器人端
 │   └── start_server.py         # VLA GPU 端
 ├── lerobot/                # LeRobot 源码（已内置 XArm6 + SpaceMouse 插件）

@@ -6,7 +6,7 @@
 
 用法::
 
-    python scripts/convert_to_lerobot.py \
+    python scripts/data/convert_to_lerobot.py \
         --input datasets/demo.zarr \
         --output lerobot_datasets/demo \
         --repo-id demo --fps 15 \

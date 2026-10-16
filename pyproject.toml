@@ -41,11 +41,11 @@ lerobot = [
 ]
 
 [project.scripts]
-xarm-collect = "scripts.collect_data:main"
+xarm-collect = "scripts.data.collect_data:main"
 xarm-viz     = "scripts.visualize:main"
 
 [tool.setuptools.packages.find]
-include = ["xarm_toolkit*", "xarm*"]
+include = ["xarm_toolkit*", "xarm*", "scripts*"]
 exclude = ["reference*"]
 
 [tool.ruff]

@@ -7,7 +7,7 @@
 
 用法::
 
-    python scripts/verify_lerobot.py \
+    python scripts/data/verify_lerobot.py \
         --path lerobot_datasets/demo \
         --repo-id demo
 """

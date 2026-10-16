@@ -4,19 +4,19 @@
 Usage
 -----
 # 默认采集 rgbd，目标 3 个 episode（新建数据集）
-python scripts/collect_data.py --dataset datasets/demo.zarr
+python scripts/data/collect_data.py --dataset datasets/demo.zarr
 
 # 指定目标 30 个 episode（断点续采：已有 N 个则只采 30-N 个）
-python scripts/collect_data.py --dataset datasets/plug.zarr --episodes 30
+python scripts/data/collect_data.py --dataset datasets/plug.zarr --episodes 30
 
 # 指定任务初始偏移 + 力控
-python scripts/collect_data.py --start-bias 0 0 -200 --force --dataset datasets/plug.zarr
+python scripts/data/collect_data.py --start-bias 0 0 -200 --force --dataset datasets/plug.zarr
 
 # 带随机偏移 + 夹爪始终闭合（stamp 类任务）
-python scripts/collect_data.py --start-bias 0 0 -270 --gripper-closed --dataset datasets/stamp.zarr
+python scripts/data/collect_data.py --start-bias 0 0 -270 --gripper-closed --dataset datasets/stamp.zarr
 
 # 采集同时保存回放视频
-python scripts/collect_data.py --save-video --dataset datasets/demo.zarr
+python scripts/data/collect_data.py --save-video --dataset datasets/demo.zarr
 
 断点续采
 --------

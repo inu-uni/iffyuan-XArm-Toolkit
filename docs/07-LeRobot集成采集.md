@@ -18,7 +18,7 @@ xarm_toolkit/teleop/spacemouse.py  (SpaceMouse 6DOF)
 采集数据 → LeRobot Dataset v3.0 (Parquet + MP4)
 ```
 
-**与原有方案的关系**：这是一套**独立的**数据采集方案。原有的 `scripts/collect_data.py` → Zarr 方案完全不受影响，两者可以共存。
+**与原有方案的关系**：这是一套**独立的**数据采集方案。原有的 `scripts/data/collect_data.py` → Zarr 方案完全不受影响，两者可以共存。
 
 ---
 

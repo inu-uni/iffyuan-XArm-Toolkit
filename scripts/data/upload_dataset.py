@@ -5,13 +5,13 @@
 
 用法::
 
-    python scripts/upload_dataset.py \
+    python scripts/data/upload_dataset.py \
         --path lerobot_datasets/act_pick2 \
         --repo IffYuan/xarm6_act_pick2 \
         --token hf_xxxxx
 
     # 也可以用环境变量传 token
-    HF_TOKEN=hf_xxxxx python scripts/upload_dataset.py \
+    HF_TOKEN=hf_xxxxx python scripts/data/upload_dataset.py \
         --path lerobot_datasets/act_pick2 \
         --repo IffYuan/xarm6_act_pick2
 """
