@@ -173,9 +173,18 @@ class XArmDeployer:
                 # 前 6 维: delta EEF [dx, dy, dz, dr, dp, dy]
                 arm_action = action[:6]
                 # 第 7 维: gripper 二值 (与训练数据一致: >=0.5 → 840 张开, <0.5 → 0 闭合)
+                gripper_input = None
                 gripper_action = None
                 if len(action) > 6:
-                    gripper_action = GRIPPER_MAX if float(action[6]) >= 0.5 else 0
+                    gripper_input = float(action[6])
+                    gripper_action = GRIPPER_MAX if gripper_input >= 0.5 else 0
+
+                logger.info(
+                    "Step %d/%d action_mode=%s arm_action=%s gripper_input=%s gripper_command=%s",
+                    step_i, self.max_steps, self.action_mode,
+                    np.array2string(arm_action, precision=4, separator=",", max_line_width=1000),
+                    gripper_input, gripper_action,
+                )
 
                 obs = self.env.step(
                     action=arm_action,
