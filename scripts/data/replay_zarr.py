@@ -6,6 +6,11 @@
     python scripts/data/replay_zarr.py --input datasets/demo.zarr --addr 192.168.1.XXX
 
 脚本以只读方式打开数据集。回放前请确认机械臂周围安全、末端工具和采集时一致。
+
+每个要回放的 episode 必须包含
+``meta/episode_config/episode_XXXXXX``，且其 ``start_bias`` attribute 为
+有限的 6 维偏置向量。回放会先复位到 Home，再按记录偏置移动，之后按序执行
+该 episode 的动作和夹爪数据。缺少偏置元数据时，该 episode 不会回退到其他开局移动方式。
 """
 
 from __future__ import annotations
@@ -168,6 +173,30 @@ def _select_episode(episodes: list[Episode]) -> Episode | None:
         print(f"序号范围为 1–{len(episodes)}。")
 
 
+def _episode_start_bias(meta: zarr.Group | None, episode: Episode) -> np.ndarray:
+    """Read the recorded effective start bias for one episode."""
+    if meta is None or "episode_config" not in meta:
+        raise ValueError("数据集缺少 meta/episode_config；请使用包含偏置元数据的采集数据")
+
+    group_name = f"episode_{episode.label:06d}"
+    config_group = meta["episode_config"]
+    if group_name not in config_group:
+        raise ValueError(f"Episode {episode.label} 缺少 meta/episode_config/{group_name}")
+
+    attrs = config_group[group_name].attrs
+    if "start_bias" not in attrs:
+        raise ValueError(f"Episode {episode.label} 的配置缺少 start_bias")
+    if int(attrs.get("episode_index", episode.label)) != episode.label:
+        raise ValueError(f"Episode {episode.label} 的配置编号不匹配")
+
+    bias = np.asarray(attrs["start_bias"], dtype=np.float64)
+    if bias.shape != (6,) or not np.isfinite(bias).all():
+        raise ValueError(
+            f"Episode {episode.label} 的 start_bias 应为有限的 6 维向量，实际为 {bias}"
+        )
+    return bias
+
+
 def _stop_arm(env: XArmEnv):
     """尽力停止正在执行的运动；失败时再尝试 SDK 状态停止。"""
     try:
@@ -183,16 +212,19 @@ def _stop_arm(env: XArmEnv):
 
 
 def _replay(env: XArmEnv, data: zarr.Group, episode: Episode,
+            start_bias: np.ndarray,
             keyboard: KeyboardListener, hz: float, speed: float) -> bool:
-    """回放一段数据；返回是否由 q 中断。"""
+    """按记录偏置定位开局，再回放一段数据；返回是否由 q 中断。
+
+    ``start_bias`` 是采集时保存的相对 Home 偏置。这里先复位并直接应用该偏置，
+    然后才从 episode 的第一条 action 开始回放；开局位置不从 pos/action 重新推算。
+    """
     actions = np.asarray(data["action"][episode.start:episode.end], dtype=np.float64)
-    positions = np.asarray(data["pos"][episode.start:episode.end], dtype=np.float64)
     grippers = np.asarray(
         data["gripper_action"][episode.start:episode.end], dtype=np.float64
     ).reshape(-1)
 
-    # pos 记录的是 action 执行后的 goal_pos，因此首帧前位姿为 pos[0]-action[0]。
-    start_pose = positions[0] - actions[0]
+    start_pose = env.reset_pose + start_bias
     print(f"Episode {episode.label} 起始位姿: {np.round(start_pose, 3).tolist()}")
     print("将先复位到 home，再移动至该起始位姿。按 q 中断当前回放。")
     confirm = input("确认机械臂周围安全并开始？[y/N]: ").strip().lower()
@@ -200,41 +232,37 @@ def _replay(env: XArmEnv, data: zarr.Group, episode: Episode,
         print("已取消。")
         return False
 
+    env.reset(close_gripper=True)
+    env.step(start_bias, gripper_action=0, speed=speed)
+
     period = 1.0 / hz
     previous_gripper = None
     interrupted = False
-    keyboard.start()
-    try:
-        env.reset(close_gripper=True)
-        env.step(start_pose - env.goal_pos, gripper_action=0, speed=speed)
+    print(f"开始回放，共 {episode.length} steps，目标频率 {hz:g} Hz。")
+    for index, action in enumerate(actions):
+        key = keyboard.get_key()
+        if key == "q":
+            interrupted = True
+            _stop_arm(env)
+            break
+        if key == "\x03":
+            raise KeyboardInterrupt
 
-        print(f"开始回放，共 {episode.length} steps，目标频率 {hz:g} Hz。")
-        for index, action in enumerate(actions):
-            key = keyboard.get_key()
-            if key == "q":
-                interrupted = True
-                _stop_arm(env)
-                break
-            if key == "\x03":
-                raise KeyboardInterrupt
+        # 数据将 gripper_action 以 0=闭合、1=打开存储，映射到 SDK 的 0/840。
+        gripper_value = 840 if grippers[index] >= 0.5 else 0
+        gripper_command = (
+            gripper_value if previous_gripper is None or gripper_value != previous_gripper
+            else None
+        )
+        frame_start = time.monotonic()
+        env.step(action, gripper_action=gripper_command, speed=speed)
+        previous_gripper = gripper_value
 
-            # 数据将 gripper_action 以 0=闭合、1=打开存储，映射到 SDK 的 0/840。
-            gripper_value = 840 if grippers[index] >= 0.5 else 0
-            gripper_command = (
-                gripper_value if previous_gripper is None or gripper_value != previous_gripper
-                else None
-            )
-            frame_start = time.monotonic()
-            env.step(action, gripper_action=gripper_command, speed=speed)
-            previous_gripper = gripper_value
-
-            if (index + 1) % 50 == 0 or index + 1 == episode.length:
-                print(f"\r已执行 {index + 1}/{episode.length} steps", end="", flush=True)
-            remaining = period - (time.monotonic() - frame_start)
-            if remaining > 0:
-                time.sleep(remaining)
-    finally:
-        keyboard.stop()
+        if (index + 1) % 50 == 0 or index + 1 == episode.length:
+            print(f"\r已执行 {index + 1}/{episode.length} steps", end="", flush=True)
+        remaining = period - (time.monotonic() - frame_start)
+        if remaining > 0:
+            time.sleep(remaining)
 
     print()
     if interrupted:
@@ -248,7 +276,7 @@ def main():
     parser = argparse.ArgumentParser(description="交互式回放 xArm Toolkit Zarr 数据")
     parser.add_argument("--input", "-i", required=True, help="Zarr 数据集路径")
     parser.add_argument("--addr", default="192.168.31.232", help="xArm 控制器 IP")
-    parser.add_argument("--hz", type=float, default=30.0, help="回放目标频率（默认 30 Hz）")
+    parser.add_argument("--hz", type=float, default=10.0, help="回放目标频率（默认 10 Hz）")
     parser.add_argument("--speed", type=float, default=100.0, help="笛卡尔速度（默认 100）")
     args = parser.parse_args()
 
@@ -265,6 +293,7 @@ def main():
     if "data" not in root:
         parser.error("Zarr 中缺少 data group")
     data = root["data"]
+    meta = root["meta"] if "meta" in root else None
     episodes = _episode_ranges(data)
     _validate_dataset(data, episodes)
     _show_dataset(path, root, data, episodes)
@@ -278,6 +307,11 @@ def main():
             if episode is None:
                 break
             try:
+                start_bias = _episode_start_bias(meta, episode)
+            except ValueError as exc:
+                print(f"\n[ERROR] {exc}")
+                continue
+            try:
                 if env is None:
                     env = XArmEnv(
                         addr=args.addr,
@@ -285,7 +319,10 @@ def main():
                         use_force=False,
                         initial_gripper_position=0,
                     )
-                interrupted = _replay(env, data, episode, keyboard, args.hz, args.speed)
+                    keyboard.start()
+                interrupted = _replay(
+                    env, data, episode, start_bias, keyboard, args.hz, args.speed
+                )
             except KeyboardInterrupt:
                 raise
             except Exception as exc:
