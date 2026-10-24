@@ -231,6 +231,7 @@ class Collector:
 
         self._save_depth = cam_mode in ("rgbd", "pcd")
         self._gripper_always_closed = self.task_cfg.get("gripper_always_closed", False)
+        self._current_start_bias = None
 
     # ------------------------------------------------------------------
     # Task start position
@@ -365,6 +366,7 @@ class Collector:
 
         bias = self._get_start_bias()
         obs = self.env.step(bias, gripper_action=0, speed=100)
+        self._current_start_bias = bias.copy()
         self.cam_arm.step()
         self.cam_fix.step()
         time.sleep(1)
@@ -408,6 +410,24 @@ class Collector:
 
             time.sleep(0.05)
 
+    def _save_episode_config(self, meta: zarr.Group, episode_index: int):
+        """Save the effective start bias and collection settings for one episode."""
+        config_group = meta.require_group("episode_config")
+        episode_group = config_group.require_group(f"episode_{episode_index:06d}")
+        random_bias = self.task_cfg.get("random_bias", {})
+        episode_group.attrs.update({
+            "episode_index": int(episode_index),
+            "start_bias": self._current_start_bias.tolist(),
+            "start_bias_base": np.asarray(
+                self.task_cfg.get("start_bias", [0, 0, 0]), dtype=np.float64
+            ).tolist(),
+            "random_bias_ranges": {
+                axis: [float(bounds[0]), float(bounds[1])]
+                for axis, bounds in random_bias.items()
+            },
+            "gripper_always_closed": bool(self._gripper_always_closed),
+        })
+
     # ------------------------------------------------------------------
     # Main collection loop
     # ------------------------------------------------------------------
@@ -435,6 +455,7 @@ class Collector:
         # Move to task start position
         bias = self._get_start_bias()
         obs = self.env.step(bias, gripper_action=0, speed=100)
+        self._current_start_bias = bias.copy()
         self.cam_arm.step()
         self.cam_fix.step()
         logger.info("Initial position: %s", obs["goal_pos"][:3])
@@ -459,6 +480,7 @@ class Collector:
                         print(f"\r\n  Episode {current_ep}: 未保存\r\n")
                     else:
                         # Successfully saved — update metadata & print summary
+                        self._save_episode_config(meta, current_ep)
                         episodes_saved += 1
                         _compute_episode_ends(data, meta)
                         self._print_episode_summary(current_ep, episodes_saved, data, stats)
@@ -718,3 +740,4 @@ class Collector:
             return None
 
         return EpisodeStats(steps=steps, duration=duration, fps=fps)
+
