@@ -155,11 +155,7 @@ class XArmDeployer:
 
         debug_file = None
         try:
-            if (
-                self.debug
-                and self.debug_file
-                and (self.debug_print_actions or self.debug_print_eef_pose)
-            ):
+            if self.debug and self.debug_file:
                 debug_path = Path(self.debug_file).expanduser()
                 debug_path.parent.mkdir(parents=True, exist_ok=True)
                 debug_file = debug_path.open("a", encoding="utf-8", buffering=1)
@@ -221,10 +217,22 @@ class XArmDeployer:
                 if debug_file is not None and debug_record is not None and len(debug_record) > 1:
                     debug_file.write(json.dumps(debug_record, ensure_ascii=False) + "\n")
 
-                obs = self.env.step(
-                    action=arm_action,
-                    gripper_action=gripper_action,
-                )
+                try:
+                    obs = self.env.step(
+                        action=arm_action,
+                        gripper_action=gripper_action,
+                    )
+                except Exception as exc:
+                    if debug_file is not None:
+                        try:
+                            debug_file.write(json.dumps({
+                                "step": step_i,
+                                "error_type": type(exc).__name__,
+                                "error": str(exc),
+                            }, ensure_ascii=False) + "\n")
+                        except Exception as log_exc:
+                            logger.error("Failed to record control error: %s", log_exc)
+                    raise
 
                 # ---- Rate control ----
                 elapsed = time.monotonic() - t0
