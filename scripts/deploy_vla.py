@@ -36,6 +36,14 @@ def main():
                         help="Control frequency (Hz)")
     parser.add_argument("--use-force", action="store_true",
                         help="Enable force control mode")
+    parser.add_argument("--debug", action="store_true",
+                        help="Enable deployment debug output and recording")
+    parser.add_argument("--debug.print-actions", dest="debug_print_actions", action="store_true",
+                        help="Print the per-step server action log (requires --debug)")
+    parser.add_argument("--debug.print-eef-pose", dest="debug_print_eef_pose", action="store_true",
+                        help="Print the pre-action end-effector pose (requires --debug)")
+    parser.add_argument("--debug.file", dest="debug_file", type=str, default=None,
+                        help="Append selected per-step debug data to this JSONL file (requires --debug)")
     args = parser.parse_args()
 
     deployer = XArmDeployer(
@@ -47,9 +55,14 @@ def main():
         max_steps=args.max_steps,
         hz=args.hz,
         use_force=args.use_force,
+        debug=args.debug,
+        debug_print_actions=args.debug_print_actions,
+        debug_print_eef_pose=args.debug_print_eef_pose,
+        debug_file=args.debug_file,
     )
     deployer.run()
 
 
 if __name__ == "__main__":
     main()
+
