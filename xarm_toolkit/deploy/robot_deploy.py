@@ -16,6 +16,7 @@ Usage::
 
 from __future__ import annotations
 
+import json
 import time
 
 import numpy as np
@@ -103,6 +104,10 @@ class XArmDeployer:
         max_steps: int = 800,
         hz: float = 10.0,
         use_force: bool = False,
+        debug: bool = False,
+        debug_print_actions: bool = False,
+        debug_print_eef_pose: bool = False,
+        debug_file: str | None = None,
         cam_arm_serial: str = CAM_ARM_SERIAL,
         cam_fix_serial: str = CAM_FIX_SERIAL,
     ):
@@ -111,6 +116,10 @@ class XArmDeployer:
         self.dt = 1.0 / hz
         self.hz = hz
         self.action_mode = action_mode
+        self.debug = debug
+        self.debug_print_actions = debug_print_actions
+        self.debug_print_eef_pose = debug_print_eef_pose
+        self.debug_file = debug_file
 
         # ---- Hardware ----
         logger.info("Initializing XArm environment ...")
@@ -143,7 +152,15 @@ class XArmDeployer:
             self.action_mode, self.hz, self.max_steps,
         )
 
+        debug_file = None
         try:
+            if (
+                self.debug
+                and self.debug_file
+                and (self.debug_print_actions or self.debug_print_eef_pose)
+            ):
+                debug_file = open(self.debug_file, "a", encoding="utf-8", buffering=1)
+
             for step_i in range(self.max_steps):
                 t0 = time.monotonic()
 
@@ -170,6 +187,16 @@ class XArmDeployer:
                 # actions shape: (chunk_size, 7) — 取第一个 action
                 action = actions[0] if actions.ndim > 1 else actions
 
+                debug_record = {"step": step_i} if self.debug else None
+                if self.debug and self.debug_print_eef_pose:
+                    eef_pose = np.asarray(obs["cart_pos"], dtype=float).copy()
+                    logger.info(
+                        "Step %d/%d eef_pose=%s",
+                        step_i, self.max_steps,
+                        np.array2string(eef_pose, precision=4, separator=",", max_line_width=1000),
+                    )
+                    debug_record["eef_pose"] = eef_pose.tolist()
+
                 # 前 6 维: delta EEF [dx, dy, dz, dr, dp, dy]
                 arm_action = action[:6]
                 # 第 7 维: gripper 二值 (与训练数据一致: >=0.5 → 840 张开, <0.5 → 0 闭合)
@@ -179,12 +206,17 @@ class XArmDeployer:
                     gripper_input = float(action[6])
                     gripper_action = GRIPPER_MAX if gripper_input >= 0.5 else 0
 
-                logger.info(
-                    "Step %d/%d action_mode=%s arm_action=%s gripper_input=%s gripper_command=%s",
-                    step_i, self.max_steps, self.action_mode,
-                    np.array2string(arm_action, precision=4, separator=",", max_line_width=1000),
-                    gripper_input, gripper_action,
-                )
+                if self.debug and self.debug_print_actions:
+                    logger.info(
+                        "Step %d/%d action_mode=%s arm_action=%s gripper_input=%s gripper_command=%s",
+                        step_i, self.max_steps, self.action_mode,
+                        np.array2string(arm_action, precision=4, separator=",", max_line_width=1000),
+                        gripper_input, gripper_action,
+                    )
+                    debug_record["action"] = np.asarray(action, dtype=float).tolist()
+
+                if debug_file is not None and debug_record is not None and len(debug_record) > 1:
+                    debug_file.write(json.dumps(debug_record, ensure_ascii=False) + "\n")
 
                 obs = self.env.step(
                     action=arm_action,
@@ -207,6 +239,8 @@ class XArmDeployer:
         except KeyboardInterrupt:
             logger.info("Interrupted by user.")
         finally:
+            if debug_file is not None:
+                debug_file.close()
             self.cleanup()
 
     def cleanup(self):
@@ -216,3 +250,4 @@ class XArmDeployer:
         self.cam_arm.cleanup()
         self.cam_fix.cleanup()
         logger.info("Deployer cleaned up.")
+
