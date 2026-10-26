@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import time
+from pathlib import Path
 
 import numpy as np
 
@@ -159,7 +160,9 @@ class XArmDeployer:
                 and self.debug_file
                 and (self.debug_print_actions or self.debug_print_eef_pose)
             ):
-                debug_file = open(self.debug_file, "a", encoding="utf-8", buffering=1)
+                debug_path = Path(self.debug_file).expanduser()
+                debug_path.parent.mkdir(parents=True, exist_ok=True)
+                debug_file = debug_path.open("a", encoding="utf-8", buffering=1)
 
             for step_i in range(self.max_steps):
                 t0 = time.monotonic()
