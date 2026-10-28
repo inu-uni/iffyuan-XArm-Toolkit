@@ -78,6 +78,7 @@ def _open_or_create_zarr(
     path: str,
     image_shape: tuple[int, ...] = (3, 240, 320),
     cam_mode: str = "rgbd",
+    use_coinft: bool = False,
 ) -> tuple[zarr.Group, zarr.Group, int]:
     """Open existing or create new Zarr dataset.
 
@@ -91,6 +92,19 @@ def _open_or_create_zarr(
         ds = zarr.open(dataset_path, mode="a")
         data = ds["data"]
         meta = ds["meta"]
+
+        # CoinFT 续采保持字段与行数一致，不补写历史数据。
+        coinft_fields = ("coinft_left", "coinft_right")
+        if use_coinft:
+            for name in coinft_fields:
+                if name not in data:
+                    raise ValueError(f"已有数据集缺少 {name}，请使用启用 CoinFT 的数据集")
+                if (data[name].shape != (len(data["episode"]), 6)
+                        or data[name].dtype != np.dtype(np.float32)):
+                    raise ValueError(f"已有数据集的 {name} 形状或类型不匹配")
+        elif any(name in data for name in coinft_fields):
+            raise ValueError("已有数据集包含 CoinFT 字段，请启用 --coinft 后续采")
+
         if "episode" in data:
             start_ep = len(np.unique(data["episode"][:]))
             logger.info("Found %d existing episodes", start_ep)
@@ -138,6 +152,11 @@ def _open_or_create_zarr(
     data.require_dataset("gripper_state", shape=(0, 1), dtype=np.float32)
     data.require_dataset("gripper_action", shape=(0, 1), dtype=np.float32)
     data.require_dataset("episode", shape=(0,), dtype=np.uint16)
+
+    # CoinFT 只保存左右六轴，不新增元数据。
+    if use_coinft:
+        data.require_dataset("coinft_left", shape=(0, 6), dtype=np.float32)
+        data.require_dataset("coinft_right", shape=(0, 6), dtype=np.float32)
 
     return data, meta, 0
 
@@ -198,6 +217,11 @@ class Collector:
         FPS for saved videos (default 15).
     warmup_time : float
         Seconds to wait after init before first episode.
+    use_coinft : bool
+        Enable recording the latest left/right CoinFT readings.
+    coinft_env : CoinFTEnv | None
+        Injected device; initialised once at run startup. Runtime failures only
+        log and retain the last successful values; startup failure ends the run.
     """
 
     def __init__(
@@ -214,6 +238,8 @@ class Collector:
         save_video: bool = False,
         video_fps: float = 15.0,
         warmup_time: float = 1.0,
+        use_coinft: bool = False,
+        coinft_env=None,
     ):
         self.env = env
         self.cam_arm = cam_arm
@@ -232,6 +258,31 @@ class Collector:
         self._save_depth = cam_mode in ("rgbd", "pcd")
         self._gripper_always_closed = self.task_cfg.get("gripper_always_closed", False)
         self._current_start_bias = None
+
+        # CoinFT 设备与最近一次成功值，整次采集共用。
+        self.use_coinft = use_coinft
+        self.coinft_env = coinft_env
+        self._last_coinft = None
+
+    # ------------------------------------------------------------------
+    # CoinFT：仅启动时初始化，运行期故障只记录日志并沿用旧值。
+    # ------------------------------------------------------------------
+
+    def _init_coinft(self, initialize: bool = False):
+        try:
+            obs = (self.coinft_env.reset(timeout=60.0)
+                   if initialize else self.coinft_env.step())
+            left = np.asarray(obs["left_wrench"], dtype=np.float32).reshape(6).copy()
+            right = np.asarray(obs["right_wrench"], dtype=np.float32).reshape(6).copy()
+            self._last_coinft = (left, right)
+            if obs["zero_check_warning"]:
+                logger.warning("CoinFT 零点检查警告，继续采集")
+        except Exception as exc:
+            if initialize:
+                logger.error("CoinFT 初始化失败，结束本次记录：%s", exc)
+                return None
+            logger.error("CoinFT 读取失败，保留最近一次成功值：%s", exc)
+        return self._last_coinft
 
     # ------------------------------------------------------------------
     # Task start position
@@ -434,10 +485,15 @@ class Collector:
 
     def run(self):
         """Run the collection session (blocking)."""
+        # CoinFT 全会话只初始化一次；失败时不开始记录。
+        if self.use_coinft and self._init_coinft(initialize=True) is None:
+            return
+
         # Open dataset
         image_shape = (3, self.image_h, self.image_w)
         data, meta, start_ep = _open_or_create_zarr(
             self.dataset_path, image_shape=image_shape, cam_mode=self.cam_mode,
+            use_coinft=self.use_coinft,
         )
 
         # Compute existing total steps for banner
@@ -618,6 +674,9 @@ class Collector:
         if self._save_depth:
             buffer["depth_arm"] = []
             buffer["depth_fix"] = []
+        if self.use_coinft:
+            buffer["coinft_left"] = []
+            buffer["coinft_right"] = []
 
         goal_gripper = 0  # will be overwritten by agent.act() each step
         steps = 0
@@ -701,6 +760,12 @@ class Collector:
                 buffer["gripper_action"].append(np.array([[ga]], dtype=np.float32))
                 buffer["episode"].append(np.array([current_ep], dtype=np.uint16))
 
+                # CoinFT 获取最新值；故障时沿用缓存，不改变采集控制流。
+                if self.use_coinft:
+                    left, right = self._init_coinft()
+                    buffer["coinft_left"].append(left[None])
+                    buffer["coinft_right"].append(right[None])
+
                 steps += 1
 
                 # Print stats every 50 steps
@@ -740,4 +805,3 @@ class Collector:
             return None
 
         return EpisodeStats(steps=steps, duration=duration, fps=fps)
-
