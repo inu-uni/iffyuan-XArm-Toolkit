@@ -240,11 +240,13 @@ class Collector:
         warmup_time: float = 1.0,
         use_coinft: bool = False,
         coinft_env=None,
+        debug: bool = False,
     ):
         self.env = env
         self.cam_arm = cam_arm
         self.cam_fix = cam_fix
         self.agent = agent
+        self.debug = debug
 
         self.dataset_path = dataset_path
         self.task_cfg = task_config or {}
@@ -767,6 +769,36 @@ class Collector:
                     buffer["coinft_right"].append(right[None])
 
                 steps += 1
+
+                # --- 每步调试日志开始：仅输出本步已有数据 ---
+                if self.debug:
+                    debug_elapsed = time.time() - t_start
+                    step_log = {
+                        "episode": current_ep,
+                        "step": steps,
+                        "elapsed_s": round(debug_elapsed, 3),
+                        "fps_avg": round(steps / debug_elapsed, 3) if debug_elapsed > 0 else 0.0,
+                        "pos": np.round(buffer["pos"][-1][0], 3).tolist(),
+                        "cart_pos": np.round(obs["cart_pos"], 3).tolist(),
+                        "action": np.round(buffer["action"][-1][0], 3).tolist(),
+                        "gripper_position": round(float(obs["gripper_position"]), 3),
+                        "gripper_target": round(float(goal_gripper), 3),
+                        "gripper_state": gs,
+                        "gripper_action": ga,
+                        "force_enabled": self.env.use_force,
+                        "force": np.round(buffer["force"][-1][0], 3).tolist(),
+                        "coinft_enabled": self.use_coinft,
+                        "rgb_arm_shape": buffer["rgb_arm"][-1].shape[1:],
+                        "rgb_fix_shape": buffer["rgb_fix"][-1].shape[1:],
+                    }
+                    if self.use_coinft:
+                        step_log["coinft_left"] = np.round(buffer["coinft_left"][-1][0], 3).tolist()
+                        step_log["coinft_right"] = np.round(buffer["coinft_right"][-1][0], 3).tolist()
+                    if self._save_depth:
+                        step_log["depth_arm_shape"] = buffer["depth_arm"][-1].shape[1:]
+                        step_log["depth_fix_shape"] = buffer["depth_fix"][-1].shape[1:]
+                    logger.info("采集步数据: %s", step_log)
+                # --- 每步调试日志结束 ---
 
                 # Print stats every 50 steps
                 if steps % 50 == 0:

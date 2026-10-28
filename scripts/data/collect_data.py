@@ -73,6 +73,8 @@ def parse_args():
                    help="Zarr dataset path")
     p.add_argument("--episodes", type=int, default=3,
                    help="目标 episode 总数（断点续采：已有 N 个则只采 episodes-N 个）")
+    p.add_argument("--debug", action="store_true",
+                   help="输出每一步采集数据的调试日志（默认关闭）")
 
     # 任务参数
     p.add_argument("--start-bias", type=float, nargs=3, default=[0, 0, 0],
@@ -205,6 +207,7 @@ def main():
         video_fps=args.video_fps,
         use_coinft=args.coinft,
         coinft_env=coinft_env,
+        debug=args.debug,
     )
 
     collector.run()
