@@ -18,6 +18,9 @@ python scripts/data/collect_data.py --start-bias 0 0 -270 --gripper-closed --dat
 # 采集同时保存回放视频
 python scripts/data/collect_data.py --save-video --dataset datasets/demo.zarr
 
+# 启用 CoinFT，只保存 coinft_left / coinft_right
+python -m scripts.data.collect_data --coinft --coinft.port COM3 --dataset datasets/coinft.zarr
+
 断点续采
 --------
 ``--episodes`` 含义是 **目标总数** 而非"再采 N 个"。
@@ -90,6 +93,11 @@ def parse_args():
     p.add_argument("--force", action="store_true",
                    help="Enable force sensor (default: off)")
 
+    # CoinFT 开关与 USB 串口，默认关闭。
+    p.add_argument("--coinft", action="store_true", help="Enable CoinFT recording")
+    p.add_argument("--coinft.port", dest="coinft_port", type=str, default=None,
+                   help="Teensy USB serial port")
+
     # 相机
     p.add_argument("--cam-mode", type=str, default="rgbd",
                    choices=["rgb", "rgbd", "pcd"],
@@ -110,7 +118,10 @@ def parse_args():
     p.add_argument("--rot-scale", type=float, default=0.004,
                    help="SpaceMouse rotation sensitivity")
 
-    return p.parse_args()
+    args = p.parse_args()
+    if args.coinft and not args.coinft_port:
+        p.error("--coinft 需要同时指定 --coinft.port")
+    return args
 
 
 def main():
@@ -153,6 +164,12 @@ def main():
     if args.random_bias_y is not None:
         task_cfg.setdefault("random_bias", {})["y"] = args.random_bias_y
 
+    # CoinFT 按需连接；Collector.run() 启动时仅初始化一次。
+    coinft_env = None
+    if args.coinft:
+        from xarm_toolkit.env.coinft_env import CoinFTEnv
+        coinft_env = CoinFTEnv(port=args.coinft_port)
+
     # --- Init env ---
     env = XArmEnv(
         addr=args.ip,
@@ -186,6 +203,8 @@ def main():
         image_size=tuple(args.image_size),
         save_video=args.save_video,
         video_fps=args.video_fps,
+        use_coinft=args.coinft,
+        coinft_env=coinft_env,
     )
 
     collector.run()
