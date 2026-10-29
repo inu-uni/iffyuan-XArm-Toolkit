@@ -23,10 +23,11 @@ ER Group XArm 6 机械臂工具包，包含真机控制、相机采集、遥操�
 | [02-机械臂控制](docs/02-机械臂控制.md) | XArmEnv 接口、三种控制模式、夹爪控制、力传感器 |
 | [03-相机系统](docs/03-相机系统.md) | RealsenseEnv 接口、RGB/RGBD/点云模式、双相机配置 |
 | [04-遥操作与数据采集](docs/04-遥操作与数据采集.md) | SpaceMouse 映射、Collector 采集流程、Zarr 数据格式、任务配置 |
-| [05-模型部署](docs/05-模型部署.md) | VLAServer/Client 架构、Pi0.5 openpi 部署、推理流程 |
-| [06-故障排除](docs/06-故障排除.md) | 常见错误、硬件排查、网络问题 |
-| [07-LeRobot 集成采集](docs/07-LeRobot集成采集.md) | LeRobot 插件安装、`lerobot record` 采集、数据格式对比 |
-| [4.5-ACT 训练全流程](docs/4.5-ACT训练全流程.md) | Zarr→LeRobot 转换、ACT 训练、推理部署、参数速查 |
+| [05-数据验证](docs/05-数据验证.md) | Zarr 数据检查、回放、episode 元数据与夹爪范围 |
+| [06-ACT 训练全流程](docs/06-ACT训练全流程.md) | Zarr→LeRobot 转换、ACT 训练、推理部署、参数速查 |
+| [07-模型部署](docs/07-模型部署.md) | VLAServer/Client 架构、Pi0.5 openpi 部署、推理流程 |
+| [08-故障排除](docs/08-故障排除.md) | 常见错误、硬件排查、网络问题 |
+| [09-LeRobot 集成采集](docs/09-LeRobot集成采集.md) | LeRobot 插件安装、`lerobot record` 采集、数据格式对比 |
 
 **示例数据集:** [IffYuan/xarm6_act_pick2](https://huggingface.co/datasets/IffYuan/xarm6_act_pick2) — 30 episodes, 14643 frames, 15Hz, LeRobot v3 格式
 

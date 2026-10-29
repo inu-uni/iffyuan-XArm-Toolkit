@@ -90,7 +90,7 @@ lerobot-record \
   --dataset.push_to_hub=false
 ```
 
-详见 [07-LeRobot集成采集.md](07-LeRobot集成采集.md)。
+详见 [09-LeRobot集成采集.md](09-LeRobot集成采集.md)。
 
 ### 3.3 数据特征映射
 
