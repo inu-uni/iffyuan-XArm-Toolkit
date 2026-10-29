@@ -44,7 +44,7 @@ class Episode:
 
 
 class KeyboardListener:
-    """跨平台读取单键；POSIX 终端使用 raw mode，退出时恢复终端设置。"""
+    """跨平台读取单键；仅回放期间读取单键；POSIX 使用 cbreak，保留 Ctrl+C 和正常换行。"""
 
     def __init__(self):
         self._windows = os.name == "nt"
@@ -61,7 +61,7 @@ class KeyboardListener:
             raise RuntimeError("键盘交互需要在终端中运行")
         self._termios = termios
         self._old_settings = termios.tcgetattr(sys.stdin)
-        tty.setraw(sys.stdin.fileno())
+        tty.setcbreak(sys.stdin.fileno())
 
     def stop(self):
         if not self._windows and self._old_settings is not None:
@@ -257,32 +257,37 @@ def _replay(env: XArmEnv, data: zarr.Group, episode: Episode,
     previous_gripper = None
     interrupted = False
     print(f"开始回放，共 {episode.length} steps，目标频率 {hz:g} Hz。")
-    for index, action in enumerate(actions):
-        key = keyboard.get_key()
-        if key == "q":
-            interrupted = True
-            _stop_arm(env)
-            break
-        if key == "\x03":
-            raise KeyboardInterrupt
+    # 单键模式仅覆盖动作回放；所有 input() 均在正常终端模式下执行。
+    try:
+        keyboard.start()
+        for index, action in enumerate(actions):
+            key = keyboard.get_key()
+            if key == "q":
+                interrupted = True
+                _stop_arm(env)
+                break
+            if key == "\x03":
+                raise KeyboardInterrupt
 
-        # 仅向 Env 发送归一化二值指令，由 Env 映射到本轮原始范围。
-        gripper_value = 0 if grippers[index] <= 0.5 else 1
-        gripper_command = (
-            gripper_value if previous_gripper is None or gripper_value != previous_gripper
-            else None
-        )
-        frame_start = time.monotonic()
-        env.step(action, gripper_action=gripper_command, speed=speed)
-        previous_gripper = gripper_value
+            # 仅向 Env 发送归一化二值指令，由 Env 映射到本轮原始范围。
+            gripper_value = 0 if grippers[index] <= 0.5 else 1
+            gripper_command = (
+                gripper_value if previous_gripper is None or gripper_value != previous_gripper
+                else None
+            )
+            frame_start = time.monotonic()
+            env.step(action, gripper_action=gripper_command, speed=speed)
+            previous_gripper = gripper_value
 
-        if (index + 1) % 50 == 0 or index + 1 == episode.length:
-            print(f"\r已执行 {index + 1}/{episode.length} steps", end="", flush=True)
-        remaining = period - (time.monotonic() - frame_start)
-        if remaining > 0:
-            time.sleep(remaining)
+            if (index + 1) % 50 == 0 or index + 1 == episode.length:
+                print(f"已执行 {index + 1}/{episode.length} steps", flush=True)
+            remaining = period - (time.monotonic() - frame_start)
+            if remaining > 0:
+                time.sleep(remaining)
+    finally:
+        keyboard.stop()
+        print()
 
-    print()
     if interrupted:
         print("回放已中断；当前 SDK step 若正在同步执行，会在返回后响应 q。")
     else:
@@ -339,7 +344,6 @@ def main():
                         initial_gripper_position=0,
                         gripper_range=gripper_range,
                     )
-                    keyboard.start()
                 else:
                     env.gripper_range = gripper_range
                 interrupted = _replay(
