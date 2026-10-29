@@ -24,6 +24,7 @@ import numpy as np
 # ── state / action 各维度含义标签 ──────────────────────────
 STATE_LABELS = ["x", "y", "z", "roll", "pitch", "yaw", "gripper"]
 ACTION_LABELS = ["dx", "dy", "dz", "droll", "dpitch", "dyaw", "gripper"]
+WRENCH_LABELS = ["fx", "fy", "fz", "mx", "my", "mz"]
 
 
 def _print_separator(char: str = "─", width: int = 64):
@@ -135,6 +136,13 @@ def verify(lerobot_path: str, repo_id: str):
         "observation.state",
         "action",
     ]
+    # 传感器为可选字段，仅检查数据集中实际存在的项。
+    if "observation.force" in dataset.features:
+        data_keys.append("observation.force")
+    if "observation.coinft_left" in dataset.features:
+        data_keys.append("observation.coinft_left")
+    if "observation.coinft_right" in dataset.features:
+        data_keys.append("observation.coinft_right")
     meta_keys = {"timestamp", "frame_index", "episode_index", "index", "task_index", "task"}
 
     for key in data_keys:
@@ -160,6 +168,20 @@ def verify(lerobot_path: str, repo_id: str):
             print(f"  [WARN] action dim={dim}, 期望 7")
             ok = False
 
+    # 力传感器与 CoinFT 均应为六维力/力矩。
+    if "observation.force" in sample:
+        if sample["observation.force"].shape != (6,):
+            print(f"  [WARN] observation.force shape={sample['observation.force'].shape}, 期望 (6,)")
+            ok = False
+    if "observation.coinft_left" in sample:
+        if sample["observation.coinft_left"].shape != (6,):
+            print(f"  [WARN] observation.coinft_left shape={sample['observation.coinft_left'].shape}, 期望 (6,)")
+            ok = False
+    if "observation.coinft_right" in sample:
+        if sample["observation.coinft_right"].shape != (6,):
+            print(f"  [WARN] observation.coinft_right shape={sample['observation.coinft_right'].shape}, 期望 (6,)")
+            ok = False
+
     # task 描述
     if "task" in sample:
         print(f"  ✓ {'task':30s} = {sample['task']}")
@@ -174,6 +196,9 @@ def verify(lerobot_path: str, repo_id: str):
 
     all_states = []
     all_actions = []
+    all_forces = []
+    all_coinft_left = []
+    all_coinft_right = []
     episode_indices = []
 
     for i in range(n_frames):
@@ -182,6 +207,13 @@ def verify(lerobot_path: str, repo_id: str):
             all_states.append(frame["observation.state"].numpy())
         if "action" in frame:
             all_actions.append(frame["action"].numpy())
+        # 与 state/action 一样，收集所有帧的传感器读数。
+        if "observation.force" in frame:
+            all_forces.append(frame["observation.force"].numpy())
+        if "observation.coinft_left" in frame:
+            all_coinft_left.append(frame["observation.coinft_left"].numpy())
+        if "observation.coinft_right" in frame:
+            all_coinft_right.append(frame["observation.coinft_right"].numpy())
         if "episode_index" in frame:
             episode_indices.append(int(frame["episode_index"]))
 
@@ -255,14 +287,28 @@ def verify(lerobot_path: str, repo_id: str):
 
         # action gripper 分布
         gripper_col = actions[:, -1]
-        n_open = int(np.sum(gripper_col == 0))
-        n_close = int(np.sum(gripper_col == 1))
+        n_open = int(np.sum(gripper_col == 1))
+        n_close = int(np.sum(gripper_col == 0))
         n_other = len(gripper_col) - n_open - n_close
-        print(f"\n  gripper_action 分布: open(0)={n_open}, close(1)={n_close}", end="")
+        print(f"\n  gripper_action 分布: close(0)={n_close}, open(1)={n_open}", end="")
         if n_other > 0:
             print(f", other={n_other}")
         else:
             print()
+
+    # ── 可选传感器统计：沿用 state/action 的统计和异常检测 ──
+    if all_forces:
+        forces = np.stack(all_forces)
+        _print_array_stats("observation.force", forces, WRENCH_LABELS)
+        all_warnings.extend(_check_anomalies("observation.force", forces))
+    if all_coinft_left:
+        coinft_left = np.stack(all_coinft_left)
+        _print_array_stats("observation.coinft_left", coinft_left, WRENCH_LABELS)
+        all_warnings.extend(_check_anomalies("observation.coinft_left", coinft_left))
+    if all_coinft_right:
+        coinft_right = np.stack(all_coinft_right)
+        _print_array_stats("observation.coinft_right", coinft_right, WRENCH_LABELS)
+        all_warnings.extend(_check_anomalies("observation.coinft_right", coinft_right))
 
     # ── 异常汇总 ──────────────────────────────────────────
     _print_separator()
