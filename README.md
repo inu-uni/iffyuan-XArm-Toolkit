@@ -7,7 +7,7 @@ ER Group XArm 6 机械臂工具包，包含真机控制、相机采集、遥操�
 | 组件 | 型号 | 关键参数 |
 |------|------|---------|
 | 机械臂 | XArm 6 (6-DOF) | IP: `192.168.31.232` |
-| 夹爪 | 内置 | 行程 0（闭合）~ 840（全开） |
+| 夹爪 | 内置 | SDK 原始位置 0（闭合）~ 840（全开）；Env 使用 0～1 |
 | 力传感器 | 内置 6 轴 FT | 支持阻抗控制 |
 | 臂上相机 | Intel RealSense D435i | serial: `327122075644` |
 | 固定相机 | Intel RealSense L515 | serial: `f1271506` |
@@ -184,7 +184,7 @@ python scripts/data/collect_data.py --start-bias 0 0 -200 --episodes 10 --datase
 # 带随机偏移（每个 episode 起始位置不同）
 python scripts/data/collect_data.py --start-bias 0 0 -200 --random-bias-x -50 70 --random-bias-y -20 10 --dataset datasets/plug.zarr
 
-# 夹爪始终闭合（stamp 类任务）
+# 夹爪状态与动作固定记录为闭合（stamp 类任务）
 python scripts/data/collect_data.py --start-bias 0 0 -270 --gripper-closed --dataset datasets/stamp.zarr
 
 # 启用力传感器
@@ -280,6 +280,12 @@ python scripts/deploy_vla.py \
 | 绝对末端 | `"absolute_eef"` | `[x,y,z,r,p,y]` 目标位姿 | VLA 使用 |
 | 绝对关节 | `"absolute_joint"` | `[j1..j6]` 目标关节角 (rad) | VLA 关节部署 |
 
+### 夹爪接口
+
+- `XArmEnv(gripper_range=(MIN, MAX), initial_gripper_position=1.0)`：原始范围默认 `(0, 840)`。
+- `env.step(..., gripper_action=0/1)`：闭合/张开，`None` 不操作；Env 也接受 `0～1` 中间值。
+- 采集及 VLA/本地部署入口使用 `--gripper-range MIN MAX`；Diffusion 使用配置键 `gripper_range: [MIN, MAX]`。
+
 ### Observation 字典
 
 `env.reset()` 和 `env.step()` 返回的 obs：
@@ -291,7 +297,7 @@ python scripts/deploy_vla.py \
 | `ext_force` | `np.ndarray (6,)` 或 `None` | 外部力/力矩（需 `use_force=True`） |
 | `raw_force` | `np.ndarray (6,)` 或 `None` | 原始力传感器读数 |
 | `goal_pos` | `np.ndarray (6,)` | 当前目标位姿 |
-| `gripper_position` | `np.ndarray` | 夹爪位置（0=闭合，840=全开） |
+| `gripper_position` | `np.ndarray` | 归一化夹爪位置（0=闭合端，1=张开端） |
 
 ### SpaceMouse 灵敏度参数
 
