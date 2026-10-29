@@ -11,6 +11,7 @@
 ``meta/episode_config/episode_XXXXXX``，且其 ``start_bias`` attribute 为
 有限的 6 维偏置向量。回放会先复位到 Home，再按记录偏置移动，之后按序执行
 该 episode 的动作和夹爪数据。缺少偏置元数据时，该 episode 不会回退到其他开局移动方式。
+夹爪原始开合范围从同组的 ``gripper_range`` attribute 读取；缺失或无效时跳过该 episode。
 """
 
 from __future__ import annotations
@@ -197,6 +198,22 @@ def _episode_start_bias(meta: zarr.Group | None, episode: Episode) -> np.ndarray
     return bias
 
 
+def _episode_gripper_range(meta: zarr.Group | None, episode: Episode) -> tuple[int, int]:
+    """Read the raw closed/open positions recorded for one episode."""
+    if meta is None or "episode_config" not in meta:
+        raise ValueError("数据集缺少 meta/episode_config，无法读取夹爪范围")
+    group_name = f"episode_{episode.label:06d}"
+    config_group = meta["episode_config"]
+    if group_name not in config_group or "gripper_range" not in config_group[group_name].attrs:
+        raise ValueError(f"Episode {episode.label} 的配置缺少 gripper_range")
+    bounds = np.asarray(config_group[group_name].attrs["gripper_range"], dtype=np.float64)
+    if (bounds.shape != (2,) or not np.isfinite(bounds).all()
+            or not 0 <= bounds[0] < bounds[1] <= 840
+            or not np.equal(bounds, np.floor(bounds)).all()):
+        raise ValueError(f"Episode {episode.label} 的 gripper_range 应为满足 0 <= min < max <= 840 的两个整数")
+    return int(bounds[0]), int(bounds[1])
+
+
 def _stop_arm(env: XArmEnv):
     """尽力停止正在执行的运动；失败时再尝试 SDK 状态停止。"""
     try:
@@ -226,6 +243,7 @@ def _replay(env: XArmEnv, data: zarr.Group, episode: Episode,
 
     start_pose = env.reset_pose + start_bias
     print(f"Episode {episode.label} 起始位姿: {np.round(start_pose, 3).tolist()}")
+    print(f"夹爪原始范围（闭合、张开）: {list(env.gripper_range)}；回放指令使用 0/1。")
     print("将先复位到 home，再移动至该起始位姿。按 q 中断当前回放。")
     confirm = input("确认机械臂周围安全并开始？[y/N]: ").strip().lower()
     if confirm != "y":
@@ -248,8 +266,8 @@ def _replay(env: XArmEnv, data: zarr.Group, episode: Episode,
         if key == "\x03":
             raise KeyboardInterrupt
 
-        # 数据将 gripper_action 以 0=闭合、1=打开存储，映射到 SDK 的 0/840。
-        gripper_value = 840 if grippers[index] >= 0.5 else 0
+        # 仅向 Env 发送归一化二值指令，由 Env 映射到本轮原始范围。
+        gripper_value = 0 if grippers[index] <= 0.5 else 1
         gripper_command = (
             gripper_value if previous_gripper is None or gripper_value != previous_gripper
             else None
@@ -308,6 +326,7 @@ def main():
                 break
             try:
                 start_bias = _episode_start_bias(meta, episode)
+                gripper_range = _episode_gripper_range(meta, episode)
             except ValueError as exc:
                 print(f"\n[ERROR] {exc}")
                 continue
@@ -318,8 +337,11 @@ def main():
                         action_mode="delta_eef",
                         use_force=False,
                         initial_gripper_position=0,
+                        gripper_range=gripper_range,
                     )
                     keyboard.start()
+                else:
+                    env.gripper_range = gripper_range
                 interrupted = _replay(
                     env, data, episode, start_bias, keyboard, args.hz, args.speed
                 )
