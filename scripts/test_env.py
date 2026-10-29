@@ -50,7 +50,7 @@ def main():
             addr=args.ip,
             use_force=args.force,
             action_mode="delta_eef",
-            initial_gripper_position=840,
+            initial_gripper_position=1,
         )
         logger.info("✓ 连接成功")
 
@@ -120,7 +120,7 @@ def main():
 
         wait_confirm("  即将打开夹爪, Enter 继续 / q 退出: ")
 
-        obs = env.step(action=[0, 0, 0, 0, 0, 0], gripper_action=840)
+        obs = env.step(action=[0, 0, 0, 0, 0, 0], gripper_action=1)
         print(f"  夹爪打开后位置: {obs['gripper_position']:.1f}")
         logger.info("✓ 夹爪测试通过")
 

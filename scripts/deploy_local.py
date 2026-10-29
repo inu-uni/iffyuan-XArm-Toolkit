@@ -33,8 +33,8 @@ logger = get_logger("deploy_local")
 # ── 硬件常量 ──────────────────────────────────────────────
 CAM_ARM_SERIAL = "327122075644"   # D435i (wrist)
 CAM_FIX_SERIAL = "f1271506"       # L515  (base)
-GRIPPER_MAX = 840
-GRIPPER_THRESHOLD = 420           # ≤420 → 0 闭合, >420 → 1 张开
+GRIPPER_MAX = 1
+GRIPPER_THRESHOLD = 0.5           # ≤0.5 → 0 闭合, >0.5 → 1 张开
 
 
 # ── 工具函数 ──────────────────────────────────────────────

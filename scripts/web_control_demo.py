@@ -36,13 +36,13 @@ class MockXArmEnv:
 
     def __init__(self, **_kw):
         self.goal_pos = self.RESET_POSE.copy()
-        self._gripper = 840.0
+        self._gripper = 1.0
         self._servo = np.zeros(6)
         print("[MockXArmEnv] 初始化完成 (模拟模式, 无真机连接)")
 
     def reset(self, close_gripper=True):
         self.goal_pos = self.RESET_POSE.copy()
-        self._gripper = 0.0 if close_gripper else 840.0
+        self._gripper = 0.0 if close_gripper else 1.0
         return self._obs()
 
     def step(self, action, gripper_action=None, speed=1000, joint_speed=1.0):
@@ -152,7 +152,7 @@ def handle_key(key: str) -> dict:
 
         if key == " ":
             gripper_open = not gripper_open
-            g = 840 if gripper_open else 0
+            g = 1 if gripper_open else 0
             obs = env.step(action=[0, 0, 0, 0, 0, 0], gripper_action=g, speed=MOVE_SPEED)
             return _status("ok", "夹爪 " + ("打开" if gripper_open else "关闭"))
 
@@ -365,7 +365,7 @@ HTML_PAGE = r"""<!DOCTYPE html>
     <div class="gripper-box">
       <span class="gripper-dot open" id="gdot"></span>
       <span class="gripper-text" id="gtxt">打开</span>
-      <span class="gripper-val" id="gval">840</span>
+      <span class="gripper-val" id="gval">1</span>
     </div>
     <div style="margin-top:12px;">
       <div class="info-title">外力 · Ext Force</div>
@@ -696,7 +696,7 @@ def main():
         env = XArmEnv(
             action_mode="delta_eef",
             use_force=False,
-            initial_gripper_position=840,
+            initial_gripper_position=1,
         )
 
     obs = env.reset(close_gripper=False)

@@ -52,7 +52,7 @@ def main():
         addr=args.ip,
         use_force=args.force,
         action_mode="delta_eef",
-        initial_gripper_position=840,  # start open
+        initial_gripper_position=1,  # start open
     )
 
     # --- Init SpaceMouse ---
@@ -111,7 +111,7 @@ def main():
                 print("\r\nReset done.")
                 continue
             elif key == "o":
-                env.step(action=[0, 0, 0, 0, 0, 0], gripper_action=840)
+                env.step(action=[0, 0, 0, 0, 0, 0], gripper_action=1)
                 print("\r\nGripper opened.")
                 continue
             elif key == "c":

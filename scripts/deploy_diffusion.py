@@ -458,9 +458,9 @@ def main():
     # 8. Build initial observation tensors
     # ================================================================
     def _gripper_state(gripper_pos) -> float:
-        """Binary gripper state: >420 → 1.0 (open), else 0.0 (closed)."""
+        """Binary gripper state: >0.5 → 1.0 (open), else 0.0 (closed)."""
         g = float(np.asarray(gripper_pos).item())
-        return 1.0 if g > 420 else 0.0
+        return 1.0 if g > 0.5 else 0.0
 
     def _make_state_tensor(obs_dict: dict) -> torch.Tensor:
         """7-dim state: normalised 6D pos + binary gripper."""
@@ -533,7 +533,7 @@ def main():
             # Split: 6 delta_pose + 1 gripper + 6 ext_force
             act_6d = action_normalizer.unnormalize(act[:, :6])
             act_gripper_binary = (act[:, 6:7] > 0.5).astype(np.float32)
-            act_gripper_exec = np.where(act_gripper_binary > 0.5, 600, 0).astype(int).ravel()
+            act_gripper_exec = np.where(act_gripper_binary > 0.5, 1, 0).astype(int).ravel()
             act_ext_force_raw = force_normalizer.unnormalize(act[:, 7:])
 
             logger.info("Executing %d / %d steps ...", Ta, horizon)
