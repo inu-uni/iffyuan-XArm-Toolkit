@@ -79,6 +79,7 @@ def _open_or_create_zarr(
     image_shape: tuple[int, ...] = (3, 240, 320),
     cam_mode: str = "rgbd",
     use_coinft: bool = False,
+    use_force: bool = False,
 ) -> tuple[zarr.Group, zarr.Group, int]:
     """Open existing or create new Zarr dataset.
 
@@ -92,6 +93,9 @@ def _open_or_create_zarr(
         ds = zarr.open(dataset_path, mode="a")
         data = ds["data"]
         meta = ds["meta"]
+
+        if use_force != ("force" in data):
+            raise ValueError("力传感器开关与已有数据集的 force 字段不一致，请保持相同配置或使用新数据集")
 
         # CoinFT 续采保持字段与行数一致，不补写历史数据。
         coinft_fields = ("coinft_left", "coinft_right")
@@ -147,7 +151,8 @@ def _open_or_create_zarr(
         )
 
     data.require_dataset("pos", shape=(0, 6), dtype=np.float32)
-    data.require_dataset("force", shape=(0, 6), dtype=np.float32)
+    if use_force:
+        data.require_dataset("force", shape=(0, 6), dtype=np.float32)
     data.require_dataset("action", shape=(0, 6), dtype=np.float32)
     data.require_dataset("gripper_state", shape=(0, 1), dtype=np.float32)
     data.require_dataset("gripper_action", shape=(0, 1), dtype=np.float32)
@@ -498,6 +503,7 @@ class Collector:
         data, meta, start_ep = _open_or_create_zarr(
             self.dataset_path, image_shape=image_shape, cam_mode=self.cam_mode,
             use_coinft=self.use_coinft,
+            use_force=self.env.use_force,
         )
 
         # Compute existing total steps for banner
@@ -671,10 +677,12 @@ class Collector:
         # --- Record ---
         buffer: dict[str, list] = {
             "rgb_arm": [], "rgb_fix": [],
-            "pos": [], "force": [], "action": [],
+            "pos": [], "action": [],
             "gripper_state": [], "gripper_action": [],
             "episode": [],
         }
+        if self.env.use_force:
+            buffer["force"] = []
         if self._save_depth:
             buffer["depth_arm"] = []
             buffer["depth_fix"] = []
@@ -750,6 +758,11 @@ class Collector:
 
                 # Force (fallback to zeros if no force sensor)
                 force = obs["ext_force"] if obs["ext_force"] is not None else np.zeros(6)
+                if self.env.use_force and obs["ext_force"] is None:
+                    logger.warning(
+                        "Episode %d step %d: 已启用 force，但未取得力数据，本步回退为六维零值",
+                        current_ep, steps + 1,
+                    )
 
                 # Append to buffer
                 buffer["rgb_arm"].append(rgb_arm.transpose(2, 0, 1)[None])  # (1, 3, H, W)
@@ -758,7 +771,8 @@ class Collector:
                     buffer["depth_arm"].append(depth_arm[None, None])  # (1, 1, H, W)
                     buffer["depth_fix"].append(depth_fix[None, None])
                 buffer["pos"].append(obs["goal_pos"].astype(np.float32)[None])
-                buffer["force"].append(np.asarray(force, dtype=np.float32)[None])
+                if self.env.use_force:
+                    buffer["force"].append(np.asarray(force, dtype=np.float32)[None])
                 buffer["action"].append(np.asarray(action, dtype=np.float32)[None])
                 buffer["gripper_state"].append(np.array([[gs]], dtype=np.float32))
                 buffer["gripper_action"].append(np.array([[ga]], dtype=np.float32))
@@ -788,11 +802,12 @@ class Collector:
                         "gripper_state": gs,
                         "gripper_action": ga,
                         "force_enabled": self.env.use_force,
-                        "force": np.round(buffer["force"][-1][0], 3).tolist(),
                         "coinft_enabled": self.use_coinft,
                         "rgb_arm_shape": buffer["rgb_arm"][-1].shape[1:],
                         "rgb_fix_shape": buffer["rgb_fix"][-1].shape[1:],
                     }
+                    if self.env.use_force:
+                        step_log["force"] = np.round(buffer["force"][-1][0], 3).tolist()
                     if self.use_coinft:
                         step_log["coinft_left"] = np.round(buffer["coinft_left"][-1][0], 3).tolist()
                         step_log["coinft_right"] = np.round(buffer["coinft_right"][-1][0], 3).tolist()
