@@ -88,6 +88,9 @@ def parse_args():
                    help="Random Y offset range per episode, e.g. --random-bias-y -20 10")
     p.add_argument("--gripper-closed", action="store_true",
                    help="Gripper always closed (stamp-like tasks)")
+    p.add_argument("--gripper-range", type=int, nargs=2, default=[0, 840],
+                   metavar=("MIN", "MAX"),
+                   help="夹爪原始位置范围：最小值为闭合位置，最大值为张开位置（默认：0 840）")
 
     # 硬件
     p.add_argument("--ip", type=str, default=XARM_IP,
@@ -160,6 +163,7 @@ def main():
     task_cfg = {
         "start_bias": args.start_bias,
         "gripper_always_closed": args.gripper_closed,
+        "gripper_range": args.gripper_range,  # 仅供 Collector 保存元数据。
     }
     if args.random_bias_x is not None:
         task_cfg.setdefault("random_bias", {})["x"] = args.random_bias_x
@@ -177,7 +181,7 @@ def main():
         addr=args.ip,
         use_force=args.force,
         action_mode="delta_eef",
-        initial_gripper_position=840,
+        gripper_range=tuple(args.gripper_range),
     )
 
     # --- Init cameras ---

@@ -480,6 +480,8 @@ class Collector:
             },
             "gripper_always_closed": bool(self._gripper_always_closed),
         })
+        # 原始夹爪范围仅记录元数据，不参与控制或状态判断。
+        episode_group.attrs["gripper_range"] = list(self.task_cfg["gripper_range"])
 
     # ------------------------------------------------------------------
     # Main collection loop
@@ -743,8 +745,8 @@ class Collector:
                     gs = 0.0
                     ga = 0.0
                 else:
-                    gs = 0.0 if obs["gripper_position"] <= 420 else 1.0
-                    ga = 1.0 if goal_gripper == 840 else 0.0
+                    gs = 0.0 if obs["gripper_position"] <= 0.5 else 1.0
+                    ga = 0.0 if goal_gripper <= 0.5 else 1.0
 
                 # Force (fallback to zeros if no force sensor)
                 force = obs["ext_force"] if obs["ext_force"] is not None else np.zeros(6)

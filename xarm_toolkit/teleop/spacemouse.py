@@ -41,16 +41,16 @@ class SpacemouseConfig:
     deadzone : float
         Ignore raw values whose absolute value is below this threshold.
     gripper_open_pos : int
-        Gripper position when open (0–840).
+        Normalized gripper opening when open (0–1, default 1).
     gripper_close_pos : int
-        Gripper position when closed (0–840).
+        Normalized gripper opening when closed (0–1, default 0).
     """
 
     translation_scale: float = 5.0
     z_scale: float | None = None  # None → use translation_scale
     rotation_scale: float = 0.004
     deadzone: float = 0.0
-    gripper_open_pos: int = 840
+    gripper_open_pos: int = 1
     gripper_close_pos: int = 0
 
 
@@ -103,7 +103,7 @@ class SpacemouseAgent:
     # ------------------------------------------------------------------
 
     def act(self, obs=None) -> Tuple[np.ndarray, int]:
-        """Read SpaceMouse and return (delta_action, gripper_position).
+        """Read SpaceMouse and return (delta_action, normalized_gripper_opening).
 
         Parameters
         ----------
@@ -117,7 +117,7 @@ class SpacemouseAgent:
             ``[dx, dy, dz, droll, dpitch, dyaw]`` — ready for
             ``XArmEnv.step(action)`` in ``delta_eef`` mode.
         gripper_action : int
-            Gripper target position (0 or 840).
+            Normalized gripper target (0 = closed, 1 = open by default).
         """
         raw, buttons = self._expert.get_action()
 

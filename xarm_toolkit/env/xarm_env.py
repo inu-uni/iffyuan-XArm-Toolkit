@@ -75,8 +75,10 @@ class XArmEnv:
         If False, skip all FT-related calls; force fields in obs will be None.
     action_mode : ActionMode
         One of ``"delta_eef"``, ``"absolute_eef"``, ``"absolute_joint"``.
-    initial_gripper_position : int
-        Gripper position to set on init (0 = closed, 840 = open).
+    initial_gripper_position : float
+        Normalized gripper position on init (0 = closed, 1 = open).
+    gripper_range : tuple[int, int]
+        Raw closed/open positions. Observations report normalized positions.
     max_retries : int
         Max retries for SDK calls before raising an exception.
     """
@@ -91,8 +93,9 @@ class XArmEnv:
         addr: str = "192.168.31.232",
         use_force: bool = False,
         action_mode: ActionMode = "delta_eef",
-        initial_gripper_position: int = 840,
+        initial_gripper_position: float = 1.0,
         max_retries: int = 10,
+        gripper_range: tuple[int, int] = (0, 840),
     ):
         if action_mode not in _VALID_ACTION_MODES:
             raise ValueError(
@@ -103,6 +106,9 @@ class XArmEnv:
         self.use_force = use_force
         self.action_mode: ActionMode = action_mode
         self.max_retries = max_retries
+        self.gripper_range = tuple(gripper_range)
+        if not 0 <= self.gripper_range[0] < self.gripper_range[1] <= 840:
+            raise ValueError("gripper_range must satisfy 0 <= min < max <= 840")
 
         self.reset_pose = self.RESET_POSE.copy()
         self.reset_joint_angles = list(self.RESET_JOINT_ANGLES)
@@ -124,7 +130,7 @@ class XArmEnv:
         self._clear_error_states()
         self._set_gripper()
         self.arm.set_gripper_position(
-            initial_gripper_position, wait=True, speed=5000
+            self._gripper_to_raw(initial_gripper_position), wait=True, speed=5000
         )
 
         if self.use_force:
@@ -238,10 +244,16 @@ class XArmEnv:
             label="set_servo_angle",
         )
 
+    def _gripper_to_raw(self, position: float) -> float:
+        """Map normalized opening (0–1) to the configured raw position."""
+        minimum, maximum = self.gripper_range
+        return minimum + position * (maximum - minimum)
+
     def _move_gripper(self, position):
-        """Send a gripper command with retry."""
+        """Send a normalized gripper command with retry."""
+        raw_position = self._gripper_to_raw(position)
         def _cmd():
-            return self.arm.set_gripper_position(position, wait=False)
+            return self.arm.set_gripper_position(raw_position, wait=False)
         _retry(
             _cmd,
             clear_fn=self._clear_error_states,
@@ -282,7 +294,8 @@ class XArmEnv:
             max_retries=self.max_retries,
             label="get_gripper_position",
         )
-        gripper_position = result[1]
+        minimum, maximum = self.gripper_range
+        gripper_position = np.clip((result[1] - minimum) / (maximum - minimum), 0.0, 1.0)
 
         # Force
         if self.use_force:
@@ -315,10 +328,10 @@ class XArmEnv:
         logger.info("Resetting ...")
 
         if close_gripper:
-            self.arm.set_gripper_position(0, wait=False, speed=8000)
+            self.arm.set_gripper_position(self._gripper_to_raw(0.0), wait=False, speed=8000)
             time.sleep(1)
         else:
-            self.arm.set_gripper_position(840, wait=False, speed=8000)
+            self.arm.set_gripper_position(self._gripper_to_raw(1.0), wait=False, speed=8000)
 
         # Disable force sensor for the reset motion
         if self.use_force:
@@ -376,7 +389,7 @@ class XArmEnv:
                 - ``"delta_eef"``:  6D delta ``[dx,dy,dz,dr,dp,dy]``
                 - ``"absolute_eef"``: 6D absolute ``[x,y,z,r,p,y]``
                 - ``"absolute_joint"``: 6D joint angles ``[j1..j6]`` (rad)
-            gripper_action: Gripper position (0–840) or None to skip.
+            gripper_action: Normalized opening (0–1), or None to skip.
             speed: EEF 模式下的笛卡尔运动速度，相对值，范围 0–2000。
             joint_speed: 关节模式下的角速度，单位 rad/s（1.0 ≈ 57°/s）。
 
@@ -431,7 +444,7 @@ if __name__ == "__main__":
     env = XArmEnv(
         action_mode=args.mode,
         use_force=False,
-        initial_gripper_position=840,
+        initial_gripper_position=1.0,
     )
     obs = env.reset()
     print("Reset obs keys:", list(obs.keys()))
