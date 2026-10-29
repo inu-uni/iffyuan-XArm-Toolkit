@@ -79,6 +79,9 @@ def main():
                         help="动作模式")
     parser.add_argument("--use-force", action="store_true",
                         help="启用力控")
+    parser.add_argument("--gripper-range", type=int, nargs=2, default=[0, 840],
+                        metavar=("MIN", "MAX"),
+                        help="夹爪原始位置范围：闭合位置与张开位置（默认：0 840）")
 
     # 控制参数
     parser.add_argument("--max-steps", type=int, default=800,
@@ -105,6 +108,7 @@ def main():
         addr=args.ip,
         action_mode=args.action_mode,
         use_force=args.use_force,
+        gripper_range=tuple(args.gripper_range),
     )
 
     logger.info("初始化相机 ...")
@@ -150,7 +154,7 @@ def main():
             arm_action = action[:6]
             gripper_action = None
             if len(action) > 6:
-                gripper_action = GRIPPER_MAX if float(action[6]) >= 0.5 else 0
+                gripper_action = 0 if float(action[6]) <= GRIPPER_THRESHOLD else GRIPPER_MAX
 
             # 执行
             obs = env.step(action=arm_action, gripper_action=gripper_action)

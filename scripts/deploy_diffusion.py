@@ -258,6 +258,8 @@ def main():
     # 1. Load model config
     # ================================================================
     cfg = load_config()
+    # 夹爪原始闭合/张开位置，仅由 Env 执行归一化映射。
+    gripper_range = tuple(cfg.get("gripper_range", [0, 840]))
 
     devices = cfg.get("devices", [0])
     ckpt_path = cfg.get("inference_ckpt_path", "") or None
@@ -355,7 +357,7 @@ def main():
     # 4. Initialize environment — xarm_toolkit
     # ================================================================
     logger.info("Initialising XArmEnv (delta_eef, force=True) ...")
-    env = XArmEnv(action_mode="delta_eef", use_force=True)
+    env = XArmEnv(action_mode="delta_eef", use_force=True, gripper_range=gripper_range)
 
     logger.info("Initialising cameras ...")
     cam_arm = RealsenseEnv(serial=CAM_ARM_SERIAL, mode="rgbd")

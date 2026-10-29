@@ -32,8 +32,8 @@ logger = get_logger("xarm_toolkit.deploy.robot_deploy")
 # Hardware defaults
 CAM_ARM_SERIAL = "327122075644"   # D435i (arm-mounted / wrist)
 CAM_FIX_SERIAL = "f1271506"       # L515 (fixed / base)
-GRIPPER_MAX = 840
-GRIPPER_THRESHOLD = 420  # 与 Collector 一致的二值阈值
+GRIPPER_MAX = 1
+GRIPPER_THRESHOLD = 0.5  # 与 Collector 一致的二值阈值
 
 
 def build_state(obs: dict) -> np.ndarray:
@@ -41,13 +41,13 @@ def build_state(obs: dict) -> np.ndarray:
 
     与 Collector 采集时完全一致：
     - pos = ``goal_pos``（commanded 目标位姿，非 cart_pos 反馈）
-    - gripper = 二值 0/1（≤420 → 0 闭合, >420 → 1 张开）  
+    - gripper = 二值 0/1（≤0.5 → 0 闭合, >0.5 → 1 张开）
 
     Parameters
     ----------
     obs : dict
         XArmEnv observation containing ``goal_pos`` (6,) and
-        ``gripper_position`` (raw 0-840).
+        ``gripper_position`` (normalized 0-1).
 
     Returns
     -------
@@ -55,8 +55,8 @@ def build_state(obs: dict) -> np.ndarray:
         Shape (7,), float32.
     """
     goal_pos = np.asarray(obs["goal_pos"], dtype=np.float32)
-    gripper_raw = float(obs.get("gripper_position", 0))
-    gripper_binary = 0.0 if gripper_raw <= GRIPPER_THRESHOLD else 1.0
+    gripper_position = float(obs.get("gripper_position", 0))
+    gripper_binary = 0.0 if gripper_position <= GRIPPER_THRESHOLD else 1.0
     return np.concatenate([goal_pos, [gripper_binary]], dtype=np.float32)
 
 
@@ -89,6 +89,8 @@ class XArmDeployer:
         Control frequency.
     use_force : bool
         Enable force control mode on XArmEnv.
+    gripper_range : tuple[int, int]
+        Raw closed/open positions passed to XArmEnv for normalized control.
     cam_arm_serial : str
         Arm-mounted camera serial.
     cam_fix_serial : str
@@ -111,6 +113,7 @@ class XArmDeployer:
         debug_file: str | None = None,
         cam_arm_serial: str = CAM_ARM_SERIAL,
         cam_fix_serial: str = CAM_FIX_SERIAL,
+        gripper_range: tuple[int, int] = (0, 840),
     ):
         self.instruction = instruction
         self.max_steps = max_steps
@@ -128,6 +131,7 @@ class XArmDeployer:
             addr=arm_ip,
             action_mode=action_mode,
             use_force=use_force,
+            gripper_range=gripper_range,
         )
 
         logger.info("Initializing cameras ...")
@@ -198,12 +202,12 @@ class XArmDeployer:
 
                 # 前 6 维: delta EEF [dx, dy, dz, dr, dp, dy]
                 arm_action = action[:6]
-                # 第 7 维: gripper 二值 (与训练数据一致: >=0.5 → 840 张开, <0.5 → 0 闭合)
+                # 第 7 维：归一化夹爪动作，>0.5 → 1 张开，≤0.5 → 0 闭合。
                 gripper_input = None
                 gripper_action = None
                 if len(action) > 6:
                     gripper_input = float(action[6])
-                    gripper_action = GRIPPER_MAX if gripper_input >= 0.5 else 0
+                    gripper_action = GRIPPER_MAX if gripper_input > GRIPPER_THRESHOLD else 0
 
                 if self.debug and self.debug_print_actions:
                     logger.info(
