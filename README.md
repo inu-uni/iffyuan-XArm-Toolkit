@@ -323,10 +323,15 @@ dataset.zarr/
 │   ├── gripper_action # (N, 1) float32 — 夹爪目标动作 (0/1)
 │   └── episode        # (N,) uint16 — episode 编号
 └── meta/
-    └── episode_ends   # (M,) uint32 — 各 episode 的结束索引
+    ├── episode_ends   # (M,) uint32 — 各 episode 的结束索引
+    └── episode_config/
+        └── episode_XXXXXX/  # attributes: episode_index、start_bias、start_bias_base、
+                             # random_bias_ranges、gripper_always_closed、gripper_range
 ```
 
 > `--cam-mode rgb` 时不创建 `depth_arm` / `depth_fix`。
+
+`meta/episode_config/episode_XXXXXX.attrs["gripper_range"]` 保存该轮原始夹爪范围 `[MIN, MAX]`，默认 `[0, 840]`，来自 `--gripper-range`。配置在 episode 确认保存后写入；完整字段及读取示例见 [Zarr Meta 采集配置](docs/04-遥操作与数据采集.md#311-meta-采集配置)。
 
 ## 项目结构
 
