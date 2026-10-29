@@ -150,6 +150,26 @@ def convert(
         },
     }
 
+    # 按源数据实际包含的字段声明传感器输出，均为六维力/力矩。
+    if "force" in data:
+        features["observation.force"] = {
+            "dtype": "float32",
+            "shape": (6,),
+            "names": ["fx", "fy", "fz", "mx", "my", "mz"],
+        }
+    if "coinft_left" in data:
+        features["observation.coinft_left"] = {
+            "dtype": "float32",
+            "shape": (6,),
+            "names": ["fx", "fy", "fz", "mx", "my", "mz"],
+        }
+    if "coinft_right" in data:
+        features["observation.coinft_right"] = {
+            "dtype": "float32",
+            "shape": (6,),
+            "names": ["fx", "fy", "fz", "mx", "my", "mz"],
+        }
+
     print(f"[INFO] 创建 LeRobot 数据集: repo_id={repo_id}, fps={fps}")
     print(f"[INFO] 输出路径: {output_path}")
 
@@ -177,6 +197,13 @@ def convert(
         action_batch = data["action"][start:end]         # (L, 6)
         gs_batch = data["gripper_state"][start:end]      # (L, 1)
         ga_batch = data["gripper_action"][start:end]     # (L, 1)
+        # 仅批量读取存在的传感器数据，区间与当前 episode 保持一致。
+        if "force" in data:
+            force_batch = data["force"][start:end]
+        if "coinft_left" in data:
+            coinft_left_batch = data["coinft_left"][start:end]
+        if "coinft_right" in data:
+            coinft_right_batch = data["coinft_right"][start:end]
 
         for i in range(ep_len):
             # 图像: (C, H, W) → (H, W, C) → PIL
@@ -195,13 +222,21 @@ def convert(
                 ga_batch[i].astype(np.float32),
             ])  # (7,)
 
-            dataset.add_frame({
+            frame = {
                 "observation.image": img_fix,
                 "observation.wrist_image": img_arm,
                 "observation.state": state,
                 "action": action_vec,
                 "task": task_name,
-            })
+            }
+            # 逐项写入本帧传感器读数，不补写源数据中不存在的字段。
+            if "force" in data:
+                frame["observation.force"] = force_batch[i].astype(np.float32)
+            if "coinft_left" in data:
+                frame["observation.coinft_left"] = coinft_left_batch[i].astype(np.float32)
+            if "coinft_right" in data:
+                frame["observation.coinft_right"] = coinft_right_batch[i].astype(np.float32)
+            dataset.add_frame(frame)
 
         dataset.save_episode()
 
