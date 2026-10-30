@@ -114,11 +114,12 @@ data/pos      (N, 6)            ┐
 data/gripper_state (N, 1)       ┘→ observation.state      (7,)          concat([pos, gripper_state])
 data/action   (N, 6)            ┐
 data/gripper_action (N, 1)      ┘→ action                 (7,)          concat([action, gripper_action])
+data/force (N, 6)               → observation.force (6,)              仅源 Zarr 启用了 --force 时存在
 meta/episode_ends               →  episodes 元数据（LeRobot 自动管理）
                                 →  task: str                             --task 参数传入
 ```
 
-> **未转入的字段**：`data/force (N,6)`、`data/depth_arm`、`data/depth_fix` 未转入 LeRobot，ACT/Pi0.5 当前只用 RGB + state + action。如需力控或深度训练，需修改 `convert_to_lerobot.py` 添加对应 feature。
+> `data/force` 存在时会转换为 LeRobot 特征 `observation.force`；`data/depth_arm` 和 `data/depth_fix` 目前未转换。保存或转换 force 不会自动让策略使用它：当前仓库的 `scripts/train_act.py` 会把该字段列入输入特征配置，但 ACT 模型前向只读取图像、`observation.state` 和 action，不读取 `observation.force`。若要训练力条件策略，需要额外修改模型输入和部署观测流程。
 
 #### observation.state 各维度含义
 

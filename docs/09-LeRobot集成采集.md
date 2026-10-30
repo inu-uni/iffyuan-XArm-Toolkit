@@ -342,7 +342,7 @@ action = frame["action"]             # [dx, dy, dz, droll, dpitch, dyaw, gripper
 | **数据格式** | Zarr + Blosc 压缩 | LeRobot Dataset v3.0 (Parquet + MP4) |
 | **图像存储** | 原始 uint8 数组 (channel-first) | H.264 视频压缩 |
 | **深度图** | ✅ 支持 (uint16) | ❌ 仅 RGB |
-| **力传感器** | ✅ 支持 (`--force`) | ❌ 不包含 |
+| **力传感器** | ✅ 支持 (`--force`) | ❌ `lerobot-record` 本身不采集；从 Zarr 转换时可带入 `observation.force` |
 | **数据体积** | 较大（原始像素） | 较小（视频压缩） |
 | **生态** | 本地使用，需自己写 DataLoader | HuggingFace Hub 生态，直接喂训练 |
 | **遥操作** | SpaceMouse 6DOF + 键盘控制 | SpaceMouse 6DOF（通过内置适配器） |
