@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""Robot-side VLA deployment script for Pi0.5 + XArm6.
-
-Thin entry point — all logic lives in :mod:`xarm_toolkit.deploy.robot_deploy`.
+"""Initialize XArm hardware and run the robot-side VLA deployment loop.
 
 Usage::
 
@@ -15,6 +13,11 @@ from __future__ import annotations
 import argparse
 
 from xarm_toolkit.deploy.robot_deploy import XArmDeployer
+from xarm_toolkit.env.realsense_env import RealsenseEnv
+from xarm_toolkit.env.xarm_env import XArmEnv
+
+CAM_ARM_SERIAL = "327122075644"   # D435i (arm-mounted / wrist)
+CAM_FIX_SERIAL = "f1271506"       # L515 (fixed / base)
 
 
 def main():
@@ -36,6 +39,10 @@ def main():
                         help="Control frequency (Hz)")
     parser.add_argument("--use-force", action="store_true",
                         help="Enable force control mode")
+    parser.add_argument("--coinft", action="store_true",
+                        help="Read and send dual CoinFT wrench values to the inference server")
+    parser.add_argument("--coinft.port", dest="coinft_port", type=str, default=None,
+                        help="Teensy USB serial port for CoinFT (required with --coinft)")
     parser.add_argument("--gripper-range", type=int, nargs=2, default=[0, 840],
                         metavar=("MIN", "MAX"),
                         help="夹爪原始位置范围：闭合位置与张开位置（默认：0 840）")
@@ -45,26 +52,50 @@ def main():
                         help="Print the per-step server action log (requires --debug)")
     parser.add_argument("--debug.print-eef-pose", dest="debug_print_eef_pose", action="store_true",
                         help="Print the pre-action end-effector pose (requires --debug)")
-    parser.add_argument("--debug.file", dest="debug_file", type=str, default=None,
-                        help="Append selected per-step debug data to this JSONL file (requires --debug)")
     args = parser.parse_args()
+    if args.coinft and not args.coinft_port:
+        parser.error("--coinft requires --coinft.port")
 
-    deployer = XArmDeployer(
-        server_host=args.server_host,
-        server_port=args.server_port,
-        instruction=args.instruction,
-        arm_ip=args.ip,
-        action_mode=args.action_mode,
-        max_steps=args.max_steps,
-        hz=args.hz,
-        use_force=args.use_force,
-        gripper_range=tuple(args.gripper_range),
-        debug=args.debug,
-        debug_print_actions=args.debug_print_actions,
-        debug_print_eef_pose=args.debug_print_eef_pose,
-        debug_file=args.debug_file,
-    )
-    deployer.run()
+    env = None
+    cam_arm = None
+    cam_fix = None
+    coinft_env = None
+    try:
+        # Initialize hardware in the same order as the data collection entry point.
+        if args.coinft:
+            from xarm_toolkit.env.coinft_env import CoinFTEnv
+            coinft_env = CoinFTEnv(port=args.coinft_port)
+
+        env = XArmEnv(
+            addr=args.ip,
+            use_force=args.use_force,
+            action_mode=args.action_mode,
+            gripper_range=tuple(args.gripper_range),
+        )
+        cam_arm = RealsenseEnv(serial=CAM_ARM_SERIAL, mode="rgb")
+        cam_fix = RealsenseEnv(serial=CAM_FIX_SERIAL, mode="rgb")
+
+        deployer = XArmDeployer(
+            env=env,
+            cam_arm=cam_arm,
+            cam_fix=cam_fix,
+            coinft_env=coinft_env,
+            server_host=args.server_host,
+            server_port=args.server_port,
+            instruction=args.instruction,
+            action_mode=args.action_mode,
+            max_steps=args.max_steps,
+            hz=args.hz,
+            debug=args.debug,
+            debug_print_actions=args.debug_print_actions,
+            debug_print_eef_pose=args.debug_print_eef_pose,
+        )
+        deployer.run()
+    finally:
+        # Also release any devices initialized before a later initialization failed.
+        for device in (coinft_env, cam_fix, cam_arm, env):
+            if device is not None:
+                device.cleanup()
 
 
 if __name__ == "__main__":

@@ -117,6 +117,8 @@ class VLAClient:
         images: list[np.ndarray],
         instruction: str,
         state: np.ndarray,
+        coinft_left: np.ndarray | None = None,
+        coinft_right: np.ndarray | None = None,
     ) -> dict[str, Any]:
         """Send an inference request and return the server's response.
 
@@ -128,6 +130,9 @@ class VLAClient:
             Language instruction for the task.
         state : np.ndarray
             Robot state vector (e.g. ``servo_angle`` or ``cart_pos``).
+        coinft_left, coinft_right : np.ndarray | None
+            Optional six-axis CoinFT wrench vectors. Each is sent independently
+            when provided as a top-level request field.
 
         Returns
         -------
@@ -140,6 +145,10 @@ class VLAClient:
             "instruction": instruction,
             "state": state,
         }
+        if coinft_left is not None:
+            msg["coinft_left"] = coinft_left
+        if coinft_right is not None:
+            msg["coinft_right"] = coinft_right
 
         try:
             self._ensure_connected()

@@ -6,32 +6,27 @@ runs the deploy control loop.
 Usage::
 
     from xarm_toolkit.deploy.robot_deploy import XArmDeployer
+    from xarm_toolkit.env.realsense_env import RealsenseEnv
+    from xarm_toolkit.env.xarm_env import XArmEnv
 
-    deployer = XArmDeployer(
-        server_host="192.168.1.100",
-        instruction="pick up the orange toy and place it to the plate",
-    )
+    env = XArmEnv(addr="192.168.31.232", action_mode="delta_eef")
+    cam_arm = RealsenseEnv(serial="327122075644", mode="rgb")
+    cam_fix = RealsenseEnv(serial="f1271506", mode="rgb")
+    deployer = XArmDeployer(env, cam_arm, cam_fix, instruction="pick up the cup")
     deployer.run()
 """
 
 from __future__ import annotations
 
-import json
 import time
-from pathlib import Path
 
 import numpy as np
 
 from xarm_toolkit.deploy.client import VLAClient
-from xarm_toolkit.env.realsense_env import RealsenseEnv
-from xarm_toolkit.env.xarm_env import XArmEnv, ActionMode
 from xarm_toolkit.utils.logger import get_logger
 
 logger = get_logger("xarm_toolkit.deploy.robot_deploy")
 
-# Hardware defaults
-CAM_ARM_SERIAL = "327122075644"   # D435i (arm-mounted / wrist)
-CAM_FIX_SERIAL = "f1271506"       # L515 (fixed / base)
 GRIPPER_MAX = 1
 GRIPPER_THRESHOLD = 0.5  # 与 Collector 一致的二值阈值
 
@@ -69,7 +64,7 @@ def _ensure_hwc(rgb) -> np.ndarray:
 
 
 class XArmDeployer:
-    """End-to-end deployment: VLAClient + XArmEnv + cameras.
+    """Run the deployment loop using initialized hardware environments.
 
     Parameters
     ----------
@@ -79,64 +74,47 @@ class XArmDeployer:
         VLA inference server port.
     instruction : str
         Language instruction for the task.
-    arm_ip : str
-        XArm controller IP.
-    action_mode : ActionMode
-        How to interpret the model's action output.
+    env, cam_arm, cam_fix : object
+        Initialized robot and camera environments.
+    coinft_env : object | None
+        Initialized CoinFT environment, if enabled.
     max_steps : int
         Maximum steps per episode.
     hz : float
         Control frequency.
-    use_force : bool
-        Enable force control mode on XArmEnv.
-    gripper_range : tuple[int, int]
-        Raw closed/open positions passed to XArmEnv for normalized control.
-    cam_arm_serial : str
-        Arm-mounted camera serial.
-    cam_fix_serial : str
-        Fixed camera serial.
+    action_mode : str
+        How to interpret the model's action output.
     """
 
     def __init__(
         self,
+        env,
+        cam_arm,
+        cam_fix,
+        coinft_env=None,
+        *,
         server_host: str = "localhost",
         server_port: int = 10093,
         instruction: str = "",
-        arm_ip: str = "192.168.31.232",
-        action_mode: ActionMode = "delta_eef",
+        action_mode: str = "delta_eef",
         max_steps: int = 800,
         hz: float = 10.0,
-        use_force: bool = False,
         debug: bool = False,
         debug_print_actions: bool = False,
         debug_print_eef_pose: bool = False,
-        debug_file: str | None = None,
-        cam_arm_serial: str = CAM_ARM_SERIAL,
-        cam_fix_serial: str = CAM_FIX_SERIAL,
-        gripper_range: tuple[int, int] = (0, 840),
     ):
         self.instruction = instruction
         self.max_steps = max_steps
         self.dt = 1.0 / hz
         self.hz = hz
         self.action_mode = action_mode
+        self.env = env
+        self.cam_arm = cam_arm
+        self.cam_fix = cam_fix
+        self.coinft_env = coinft_env
         self.debug = debug
         self.debug_print_actions = debug_print_actions
         self.debug_print_eef_pose = debug_print_eef_pose
-        self.debug_file = debug_file
-
-        # ---- Hardware ----
-        logger.info("Initializing XArm environment ...")
-        self.env = XArmEnv(
-            addr=arm_ip,
-            action_mode=action_mode,
-            use_force=use_force,
-            gripper_range=gripper_range,
-        )
-
-        logger.info("Initializing cameras ...")
-        self.cam_arm = RealsenseEnv(serial=cam_arm_serial, mode="rgb")
-        self.cam_fix = RealsenseEnv(serial=cam_fix_serial, mode="rgb")
 
         # ---- VLA client ----
         logger.info("Connecting to VLA server at %s:%d ...", server_host, server_port)
@@ -148,21 +126,18 @@ class XArmDeployer:
 
     def run(self):
         """Run the deployment control loop (blocking)."""
-        # Reset
-        obs = self.env.reset(close_gripper=False)
-        logger.info("Robot reset. Starting deployment loop ...")
-        logger.info("Instruction: %s", self.instruction)
-        logger.info(
-            "Action mode: %s, Hz: %.1f, Max steps: %d",
-            self.action_mode, self.hz, self.max_steps,
-        )
-
-        debug_file = None
         try:
-            if self.debug and self.debug_file:
-                debug_path = Path(self.debug_file).expanduser()
-                debug_path.parent.mkdir(parents=True, exist_ok=True)
-                debug_file = debug_path.open("a", encoding="utf-8", buffering=1)
+            # Start a fresh CoinFT tare before moving the arm; keep both sensors unloaded.
+            if self.coinft_env is not None:
+                self.coinft_env.reset(timeout=60.0)
+
+            obs = self.env.reset(close_gripper=False)
+            logger.info("Robot reset. Starting deployment loop ...")
+            logger.info("Instruction: %s", self.instruction)
+            logger.info(
+                "Action mode: %s, Hz: %.1f, Max steps: %d",
+                self.action_mode, self.hz, self.max_steps,
+            )
 
             for step_i in range(self.max_steps):
                 t0 = time.monotonic()
@@ -174,11 +149,23 @@ class XArmDeployer:
                 # ---- Build state: cart_pos(6) + gripper(1) ----
                 state = build_state(obs)
 
+                # ---- Read optional dual CoinFT wrench ----
+                coinft_left = None
+                coinft_right = None
+                if self.coinft_env is not None:
+                    coinft_obs = self.coinft_env.step()
+                    if "left_wrench" in coinft_obs:
+                        coinft_left = coinft_obs["left_wrench"]
+                    if "right_wrench" in coinft_obs:
+                        coinft_right = coinft_obs["right_wrench"]
+
                 # ---- Inference ----
                 result = self.client.predict(
                     images=[rgb_arm, rgb_fix],
                     instruction=self.instruction,
                     state=state,
+                    coinft_left=coinft_left,
+                    coinft_right=coinft_right,
                 )
 
                 actions = result.get("actions")
@@ -190,7 +177,6 @@ class XArmDeployer:
                 # actions shape: (chunk_size, 7) — 取第一个 action
                 action = actions[0] if actions.ndim > 1 else actions
 
-                debug_record = {"step": step_i} if self.debug else None
                 if self.debug and self.debug_print_eef_pose:
                     eef_pose = np.asarray(obs["cart_pos"], dtype=float).copy()
                     logger.info(
@@ -198,7 +184,6 @@ class XArmDeployer:
                         step_i, self.max_steps,
                         np.array2string(eef_pose, precision=4, separator=",", max_line_width=1000),
                     )
-                    debug_record["eef_pose"] = eef_pose.tolist()
 
                 # 前 6 维: delta EEF [dx, dy, dz, dr, dp, dy]
                 arm_action = action[:6]
@@ -216,27 +201,10 @@ class XArmDeployer:
                         np.array2string(arm_action, precision=4, separator=",", max_line_width=1000),
                         gripper_input, gripper_action,
                     )
-                    debug_record["action"] = np.asarray(action, dtype=float).tolist()
-
-                if debug_file is not None and debug_record is not None and len(debug_record) > 1:
-                    debug_file.write(json.dumps(debug_record, ensure_ascii=False) + "\n")
-
-                try:
-                    obs = self.env.step(
-                        action=arm_action,
-                        gripper_action=gripper_action,
-                    )
-                except Exception as exc:
-                    if debug_file is not None:
-                        try:
-                            debug_file.write(json.dumps({
-                                "step": step_i,
-                                "error_type": type(exc).__name__,
-                                "error": str(exc),
-                            }, ensure_ascii=False) + "\n")
-                        except Exception as log_exc:
-                            logger.error("Failed to record control error: %s", log_exc)
-                    raise
+                obs = self.env.step(
+                    action=arm_action,
+                    gripper_action=gripper_action,
+                )
 
                 # ---- Rate control ----
                 elapsed = time.monotonic() - t0
@@ -254,15 +222,10 @@ class XArmDeployer:
         except KeyboardInterrupt:
             logger.info("Interrupted by user.")
         finally:
-            if debug_file is not None:
-                debug_file.close()
             self.cleanup()
 
     def cleanup(self):
-        """Release all resources."""
+        """Release the inference client; hardware is owned by the entry point."""
         self.client.close()
-        self.env.cleanup()
-        self.cam_arm.cleanup()
-        self.cam_fix.cleanup()
-        logger.info("Deployer cleaned up.")
+        logger.info("VLA client closed.")
 
