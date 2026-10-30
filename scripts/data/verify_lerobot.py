@@ -119,8 +119,11 @@ def verify(lerobot_path: str, repo_id: str):
         total_sec = n_frames / dataset.fps
         print(f"  总时长:     {total_sec:.1f}s ({total_sec / 60:.1f}min)")
 
-    for idx, task in dataset.meta.tasks.items():
-        print(f"    [{idx}] {task}")
+    # tasks is a DataFrame indexed by task text. Iterating over .items() yields
+    # columns (Series), which pandas formats as a multi-line table and misaligns
+    # the overview. Print each task as a single row instead.
+    for task, row in dataset.meta.tasks.iterrows():
+        print(f"    [{int(row['task_index'])}] {task}")
 
     ok = True
     all_warnings: list[str] = []
