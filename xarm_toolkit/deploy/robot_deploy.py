@@ -100,8 +100,6 @@ class XArmDeployer:
         max_steps: int = 800,
         hz: float = 10.0,
         debug: bool = False,
-        debug_print_actions: bool = False,
-        debug_print_eef_pose: bool = False,
     ):
         self.instruction = instruction
         self.max_steps = max_steps
@@ -113,8 +111,6 @@ class XArmDeployer:
         self.cam_fix = cam_fix
         self.coinft_env = coinft_env
         self.debug = debug
-        self.debug_print_actions = debug_print_actions
-        self.debug_print_eef_pose = debug_print_eef_pose
 
         # ---- VLA client ----
         logger.info("Connecting to VLA server at %s:%d ...", server_host, server_port)
@@ -177,7 +173,7 @@ class XArmDeployer:
                 # actions shape: (chunk_size, 7) — 取第一个 action
                 action = actions[0] if actions.ndim > 1 else actions
 
-                if self.debug and self.debug_print_eef_pose:
+                if self.debug:
                     eef_pose = np.asarray(obs["cart_pos"], dtype=float).copy()
                     logger.info(
                         "Step %d/%d eef_pose=%s",
@@ -194,7 +190,7 @@ class XArmDeployer:
                     gripper_input = float(action[6])
                     gripper_action = GRIPPER_MAX if gripper_input > GRIPPER_THRESHOLD else 0
 
-                if self.debug and self.debug_print_actions:
+                if self.debug:
                     logger.info(
                         "Step %d/%d action_mode=%s arm_action=%s gripper_input=%s gripper_command=%s",
                         step_i, self.max_steps, self.action_mode,

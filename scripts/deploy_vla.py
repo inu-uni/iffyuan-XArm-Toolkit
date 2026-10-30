@@ -47,11 +47,7 @@ def main():
                         metavar=("MIN", "MAX"),
                         help="夹爪原始位置范围：闭合位置与张开位置（默认：0 840）")
     parser.add_argument("--debug", action="store_true",
-                        help="Enable deployment debug output and recording")
-    parser.add_argument("--debug.print-actions", dest="debug_print_actions", action="store_true",
-                        help="Print the per-step server action log (requires --debug)")
-    parser.add_argument("--debug.print-eef-pose", dest="debug_print_eef_pose", action="store_true",
-                        help="Print the pre-action end-effector pose (requires --debug)")
+                        help="Print per-step actions and pre-action end-effector poses")
     args = parser.parse_args()
     if args.coinft and not args.coinft_port:
         parser.error("--coinft requires --coinft.port")
@@ -87,8 +83,6 @@ def main():
             max_steps=args.max_steps,
             hz=args.hz,
             debug=args.debug,
-            debug_print_actions=args.debug_print_actions,
-            debug_print_eef_pose=args.debug_print_eef_pose,
         )
         deployer.run()
     finally:
