@@ -55,18 +55,18 @@ def _read_samples(
     stop: threading.Event,
 ) -> None:
     try:
-        messages.put(("status", "正在连接 Teensy..."))
+        messages.put(("status", "Connecting to Teensy..."))
         with CoinFTInterface(
             args.port, args.baud, start_stream=not args.no_start_command
         ) as source:
-            messages.put(("status", "串口已连接，等待数据帧..."))
+            messages.put(("status", "Serial connected; waiting for data frames..."))
             while not stop.is_set():
                 try:
                     command = control.get_nowait()
                 except queue.Empty:
                     command = None
                 if command == "zero":
-                    messages.put(("status", "正在重启传感器并执行板端归零..."))
+                    messages.put(("status", "Restarting sensor and running device-side tare..."))
                     source.restart_calibration()
                     messages.put(("reset_plot", None))
                 try:
@@ -74,7 +74,7 @@ def _read_samples(
                 except TimeoutError:
                     messages.put(("stats", source.parser_stats))
     except Exception as exc:
-        messages.put(("error", f"串口读取异常: {type(exc).__name__}: {exc}"))
+        messages.put(("error", f"Serial read error: {type(exc).__name__}: {exc}"))
 
 
 def run_dual(args: argparse.Namespace) -> int:
@@ -104,22 +104,22 @@ def run_dual(args: argparse.Namespace) -> int:
         force_axis.legend(force_lines + moment_lines, [line.get_label() for line in force_lines + moment_lines],
                           loc="upper left", ncol=3, fontsize="small")
         side_plots[side] = (force_axis, moment_axis, force_lines, moment_lines)
-    status = figure.suptitle("正在连接 Teensy...", fontsize=12)
+    status = figure.suptitle("Connecting to Teensy...", fontsize=12)
     control_queue: queue.Queue = queue.Queue()
     from matplotlib.widgets import Button
 
     button_axis = figure.add_axes((0.015, 0.035, 0.15, 0.065))
-    zero_button = Button(button_axis, "重新归零", color="#f1f3f5", hovercolor="#dfe3e8")
+    zero_button = Button(button_axis, "Tare", color="#f1f3f5", hovercolor="#dfe3e8")
     zero_state = {"pending": False}
 
     def request_zero(_event: Any) -> None:
         if zero_state["pending"]:
             return
         zero_state["pending"] = True
-        zero_button.label.set_text("校准中...")
+        zero_button.label.set_text("Taring...")
         zero_button.ax.set_facecolor("#e9ecef")
         control_queue.put("zero")
-        status.set_text("正在执行板端归零；首次上电约 28-30 秒，后续约 3 秒；请保持空载")
+        status.set_text("Device-side tare in progress. First power-up: ~28-30 s; later tares: ~3 s. Keep sensors unloaded.")
         figure.canvas.draw_idle()
 
     zero_button.on_clicked(request_zero)
@@ -137,7 +137,7 @@ def run_dual(args: argparse.Namespace) -> int:
     last_draw_s = start_s
     samples_since_draw = 0
     last_frame_s: float | None = None
-    last_status = "等待数据帧"
+    last_status = "Waiting for data frames"
     parser_stats = (0, 0)
     reader_error: str | None = None
     valid_count = 0
@@ -163,7 +163,7 @@ def run_dual(args: argparse.Namespace) -> int:
                     last_status = sample.calibration_status
                     if sample.calibration_status in ("ready", "zero_check_failed", "error"):
                         zero_state["pending"] = False
-                        zero_button.label.set_text("重新归零")
+                        zero_button.label.set_text("Tare")
                         zero_button.ax.set_facecolor("#f1f3f5")
                     sample_s = device_time.update(sample.teensy_time_us)
                     latest_sample_s = sample_s
@@ -186,7 +186,7 @@ def run_dual(args: argparse.Namespace) -> int:
                     history.clear()
                     sample = None
                     last_frame_s = now_s
-                    last_status = "等待 Teensy 重新校准"
+                    last_status = "Waiting for Teensy recalibration"
                     valid_count = 0
                     measured_hz = 0.0
                     previous_valid_time_s = None
@@ -200,7 +200,7 @@ def run_dual(args: argparse.Namespace) -> int:
                 elif kind == "error":
                     reader_error = payload
                     zero_state["pending"] = False
-                    zero_button.label.set_text("重新归零")
+                    zero_button.label.set_text("Tare")
                     zero_button.ax.set_facecolor("#f1f3f5")
 
             if last_frame_s is None:
@@ -213,29 +213,29 @@ def run_dual(args: argparse.Namespace) -> int:
                 status.set_color("crimson")
             elif age_s > 2.0:
                 message = (
-                    f"异常: {age_s:.1f}s 未收到完整数据帧 | CRC错误 {parser_stats[0]}，"
-                    f"丢弃字节 {parser_stats[1]} | 检查固件发送、USB连接和波特率"
+                    f"Error: no complete frame for {age_s:.1f}s | CRC errors {parser_stats[0]}, "
+                    f"discarded bytes {parser_stats[1]} | Check firmware output, USB, and baud rate"
                 )
                 status.set_color("crimson")
             elif sample is None:
                 message = last_status
                 status.set_color("black")
             elif sample.calibration_status == "zero_check_failed":
-                message = "异常: Teensy 零点校验未通过 | 输出无效，请检查传感器是否空载并重新归零"
+                message = "Error: Teensy zero check failed | Output is invalid. Unload the sensors and tare again."
                 status.set_color("crimson")
             elif sample.calibration_status == "error":
-                message = "异常: Teensy 推理或校准失败 | 请检查固件状态"
+                message = "Error: Teensy inference or calibration failed | Check firmware status."
                 status.set_color("crimson")
             elif sample.zero_check_warning:
                 message = (
-                    f"提示: 归零检查窗口受到扰动，六轴数据仍有效并持续采集 | "
-                    f"有效帧 {valid_count} | 约 {measured_hz:.0f} Hz | 丢帧 {sample.dropped_before}"
+                    f"Warning: disturbance during zero check; wrench data remains valid | "
+                    f"valid frames {valid_count} | ~{measured_hz:.0f} Hz | dropped {sample.dropped_before}"
                 )
                 status.set_color("darkorange")
             else:
                 message = (
-                    f"状态: {sample.calibration_status} | 有效帧 {valid_count} | "
-                    f"约 {measured_hz:.0f} Hz | 丢帧 {sample.dropped_before}"
+                    f"Status: {sample.calibration_status} | valid frames {valid_count} | "
+                    f"~{measured_hz:.0f} Hz | dropped {sample.dropped_before}"
                 )
                 status.set_color("black")
 
