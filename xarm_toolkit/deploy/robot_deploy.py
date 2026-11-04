@@ -99,12 +99,14 @@ class XArmDeployer:
         action_mode: str = "delta_eef",
         max_steps: int = 800,
         hz: float = 10.0,
+        speed: float = 100.0,
         debug: bool = False,
     ):
         self.instruction = instruction
         self.max_steps = max_steps
         self.dt = 1.0 / hz
         self.hz = hz
+        self.speed = speed
         self.action_mode = action_mode
         self.env = env
         self.cam_arm = cam_arm
@@ -131,8 +133,8 @@ class XArmDeployer:
             logger.info("Robot reset. Starting deployment loop ...")
             logger.info("Instruction: %s", self.instruction)
             logger.info(
-                "Action mode: %s, Hz: %.1f, Max steps: %d",
-                self.action_mode, self.hz, self.max_steps,
+                "Action mode: %s, Hz: %.1f, Cartesian speed: %.1f, Max steps: %d",
+                self.action_mode, self.hz, self.speed, self.max_steps,
             )
 
             for step_i in range(self.max_steps):
@@ -200,6 +202,7 @@ class XArmDeployer:
                 obs = self.env.step(
                     action=arm_action,
                     gripper_action=gripper_action,
+                    speed=self.speed,
                 )
 
                 # ---- Rate control ----

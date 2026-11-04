@@ -11,6 +11,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import math
 
 from xarm_toolkit.deploy.robot_deploy import XArmDeployer
 from xarm_toolkit.env.realsense_env import RealsenseEnv
@@ -37,6 +38,8 @@ def main():
                         help="Maximum steps per episode")
     parser.add_argument("--hz", type=float, default=10.0,
                         help="Control frequency (Hz)")
+    parser.add_argument("--speed", type=float, default=100.0,
+                        help="Cartesian motion speed in EEF modes (0, 2000], default: 100")
     parser.add_argument("--use-force", action="store_true",
                         help="Enable force control mode")
     parser.add_argument("--coinft", action="store_true",
@@ -49,6 +52,8 @@ def main():
     parser.add_argument("--debug", action="store_true",
                         help="Print per-step actions and pre-action end-effector poses")
     args = parser.parse_args()
+    if not math.isfinite(args.speed) or not 0 < args.speed <= 2000:
+        parser.error("--speed must be in the range (0, 2000]")
     if args.coinft and not args.coinft_port:
         parser.error("--coinft requires --coinft.port")
 
@@ -82,6 +87,7 @@ def main():
             action_mode=args.action_mode,
             max_steps=args.max_steps,
             hz=args.hz,
+            speed=args.speed,
             debug=args.debug,
         )
         deployer.run()
