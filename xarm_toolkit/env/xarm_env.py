@@ -9,7 +9,7 @@ from __future__ import annotations
 import atexit
 import math
 import time
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 from pytransform3d import rotations as pr
@@ -249,8 +249,8 @@ class XArmEnv:
         minimum, maximum = self.gripper_range
         return minimum + position * (maximum - minimum)
 
-    def _move_gripper(self, position):
-        """Send a normalized gripper command with retry."""
+    def _move_gripper(self, position: float):
+        """Send a normalized gripper command and return its raw target."""
         raw_position = self._gripper_to_raw(position)
         def _cmd():
             return self.arm.set_gripper_position(raw_position, wait=False)
@@ -260,6 +260,7 @@ class XArmEnv:
             max_retries=self.max_retries,
             label="set_gripper_position",
         )
+        return raw_position
 
     # ------------------------------------------------------------------
     # Public API
@@ -267,7 +268,7 @@ class XArmEnv:
 
     # ---- Observation ----
 
-    def _get_observation(self) -> dict[str, np.ndarray | None]:
+    def _get_observation(self) -> dict[str, Any]:
         """Read and return the current observation dict."""
         # Cart pos
         result = _retry(
@@ -295,7 +296,10 @@ class XArmEnv:
             label="get_gripper_position",
         )
         minimum, maximum = self.gripper_range
-        gripper_position = np.clip((result[1] - minimum) / (maximum - minimum), 0.0, 1.0)
+        gripper_raw_position = result[1]
+        gripper_position = np.clip(
+            (gripper_raw_position - minimum) / (maximum - minimum), 0.0, 1.0
+        )
 
         # Force
         if self.use_force:
@@ -312,11 +316,12 @@ class XArmEnv:
             "raw_force": raw_force,
             "goal_pos": np.array(self.goal_pos),
             "gripper_position": np.array(gripper_position),
+            "gripper_raw_position": np.array(gripper_raw_position, dtype=int),
         }
 
     # ---- Reset ----
 
-    def reset(self, close_gripper: bool = True) -> dict[str, np.ndarray | None]:
+    def reset(self, close_gripper: bool = True) -> dict[str, Any]:
         """Reset the arm to its home pose.
 
         Args:
@@ -378,10 +383,10 @@ class XArmEnv:
     def step(
         self,
         action,
-        gripper_action=None,
+        gripper_action: float | None = None,
         speed: float = 1000,
         joint_speed: float = 1.0,
-    ) -> dict[str, np.ndarray | None]:
+    ) -> dict[str, Any]:
         """Execute one action step.
 
         Args:
@@ -389,7 +394,7 @@ class XArmEnv:
                 - ``"delta_eef"``:  6D delta ``[dx,dy,dz,dr,dp,dy]``
                 - ``"absolute_eef"``: 6D absolute ``[x,y,z,r,p,y]``
                 - ``"absolute_joint"``: 6D joint angles ``[j1..j6]`` (rad)
-            gripper_action: Normalized opening (0–1), or None to skip.
+            gripper_action: Normalized opening (0–1) as a float, or None to skip.
             speed: EEF 模式下的笛卡尔运动速度，相对值，范围 0–2000。
             joint_speed: 关节模式下的角速度，单位 rad/s（1.0 ≈ 57°/s）。
 
@@ -409,10 +414,17 @@ class XArmEnv:
         else:
             raise ValueError(f"Unknown action_mode: {self.action_mode!r}")
 
+        gripper_raw_action = None
         if gripper_action is not None:
-            self._move_gripper(gripper_action)
+            gripper_raw_action = self._move_gripper(gripper_action)
 
-        return self._get_observation()
+        obs = self._get_observation()
+        obs["gripper_raw_action"] = (
+            np.array(gripper_raw_action, dtype=int)
+            if gripper_raw_action is not None
+            else None
+        )
+        return obs
 
     # ---- Cleanup ----
 

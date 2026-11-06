@@ -156,6 +156,8 @@ def _open_or_create_zarr(
     data.require_dataset("action", shape=(0, 6), dtype=np.float32)
     data.require_dataset("gripper_state", shape=(0, 1), dtype=np.float32)
     data.require_dataset("gripper_action", shape=(0, 1), dtype=np.float32)
+    data.require_dataset("gripper_raw_position", shape=(0, 1), dtype=np.int32)
+    data.require_dataset("gripper_raw_action", shape=(0, 1), dtype=np.int32)
     data.require_dataset("episode", shape=(0,), dtype=np.uint16)
 
     # CoinFT 只保存左右六轴，不新增元数据。
@@ -206,6 +208,7 @@ class Collector:
         - ``start_bias``: [x, y, z] offset from reset pose (default [0,0,0])
         - ``random_bias``: {x: [lo, hi], y: [lo, hi]} for randomised start (optional)
         - ``gripper_always_closed``: bool (for stamp-like tasks)
+        - ``gripper_mode``: ``"binary"`` or ``"continuous"``
     num_episodes : int
         Number of episodes to collect in this session.
     cam_mode : str
@@ -264,6 +267,7 @@ class Collector:
 
         self._save_depth = cam_mode in ("rgbd", "pcd")
         self._gripper_always_closed = self.task_cfg.get("gripper_always_closed", False)
+        self._gripper_mode = self.task_cfg["gripper_mode"]
         self._current_start_bias = None
 
         # CoinFT 设备与最近一次成功值，整次采集共用。
@@ -484,6 +488,7 @@ class Collector:
                 for axis, bounds in random_bias.items()
             },
             "gripper_always_closed": bool(self._gripper_always_closed),
+            "gripper_mode": self._gripper_mode,
         })
         # 原始夹爪范围仅记录元数据，不参与控制或状态判断。
         episode_group.attrs["gripper_range"] = list(self.task_cfg["gripper_range"])
@@ -640,8 +645,13 @@ class Collector:
         # During wait: arm stays still, agent reads SpaceMouse to update gripper
         while True:
             _action, goal_gripper = self.agent.act()
+            gripper_command = (
+                0.0 if goal_gripper <= 0.5 else 1.0
+            ) if self._gripper_mode == "binary" else goal_gripper
 
-            obs = self.env.step([0, 0, 0, 0, 0, 0], gripper_action=goal_gripper, speed=100)
+            obs = self.env.step(
+                [0, 0, 0, 0, 0, 0], gripper_action=gripper_command, speed=100
+            )
             self.cam_arm.step()
             self.cam_fix.step()
 
@@ -679,6 +689,7 @@ class Collector:
             "rgb_arm": [], "rgb_fix": [],
             "pos": [], "action": [],
             "gripper_state": [], "gripper_action": [],
+            "gripper_raw_position": [], "gripper_raw_action": [],
             "episode": [],
         }
         if self.env.use_force:
@@ -705,6 +716,9 @@ class Collector:
 
                 # SpaceMouse action
                 action, goal_gripper = self.agent.act()
+                gripper_command = (
+                    0.0 if goal_gripper <= 0.5 else 1.0
+                ) if self._gripper_mode == "binary" else goal_gripper
 
                 # Camera observations (before step, matches reference)
                 obs_arm = self.cam_arm.step()
@@ -746,15 +760,18 @@ class Collector:
                                            interpolation=cv2.INTER_NEAREST)
 
                 # Robot step
-                obs = self.env.step(action, gripper_action=goal_gripper, speed=100)
+                obs = self.env.step(action, gripper_action=gripper_command, speed=100)
 
                 # Gripper state/action
                 if self._gripper_always_closed:
                     gs = 0.0
                     ga = 0.0
-                else:
+                elif self._gripper_mode == "binary":
                     gs = 0.0 if obs["gripper_position"] <= 0.5 else 1.0
-                    ga = 0.0 if goal_gripper <= 0.5 else 1.0
+                    ga = 0.0 if gripper_command <= 0.5 else 1.0
+                else:
+                    gs = obs["gripper_position"]
+                    ga = gripper_command
 
                 # Force (fallback to zeros if no force sensor)
                 force = obs["ext_force"] if obs["ext_force"] is not None else np.zeros(6)
@@ -776,6 +793,12 @@ class Collector:
                 buffer["action"].append(np.asarray(action, dtype=np.float32)[None])
                 buffer["gripper_state"].append(np.array([[gs]], dtype=np.float32))
                 buffer["gripper_action"].append(np.array([[ga]], dtype=np.float32))
+                buffer["gripper_raw_position"].append(
+                    np.array([[obs["gripper_raw_position"]]], dtype=np.int32)
+                )
+                buffer["gripper_raw_action"].append(
+                    np.array([[obs["gripper_raw_action"]]], dtype=np.int32)
+                )
                 buffer["episode"].append(np.array([current_ep], dtype=np.uint16))
 
                 # CoinFT 获取最新值；故障时沿用缓存，不改变采集控制流。
