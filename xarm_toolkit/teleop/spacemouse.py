@@ -106,8 +106,8 @@ class BinaryGripperController:
 class ContinuousGripperController:
     """Continuous button policy with an independent normalized target.
 
-    The target starts at the configured open endpoint. Holding button 0 raises
-    it; holding button 1 lowers it. Releasing both buttons returns the current
+    The target starts at the configured open endpoint. Holding button 0 lowers
+    it; holding button 1 raises it. Releasing both buttons returns the current
     target unchanged. Pressing both also leaves the target unchanged.
     """
 
@@ -120,13 +120,13 @@ class ContinuousGripperController:
         btn1 = bool(buttons[1])
         if btn0 and not btn1:
             self._position = float(np.clip(
-                self._position + GRIPPER_CONTINUOUS_STEP,
+                self._position - GRIPPER_CONTINUOUS_STEP,
                 self.cfg.gripper_close_pos,
                 self.cfg.gripper_open_pos,
             ))
         elif btn1 and not btn0:
             self._position = float(np.clip(
-                self._position - GRIPPER_CONTINUOUS_STEP,
+                self._position + GRIPPER_CONTINUOUS_STEP,
                 self.cfg.gripper_close_pos,
                 self.cfg.gripper_open_pos,
             ))
@@ -169,8 +169,8 @@ class SpacemouseAgent:
         - button[1] (right) → (reserved, unused)
 
     Button mapping in continuous mode:
-        - button[0] (left)  → increase opening while held
-        - button[1] (right) → decrease opening while held
+        - button[0] (left)  → decrease opening while held (close)
+        - button[1] (right) → increase opening while held (open)
         - neither or both   → hold the current target
     """
 

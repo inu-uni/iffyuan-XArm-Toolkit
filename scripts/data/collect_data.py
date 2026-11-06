@@ -89,9 +89,7 @@ def parse_args():
     p.add_argument("--gripper-closed", action="store_true",
                    help="Gripper always closed (stamp-like tasks)")
     p.add_argument("--gripper-mode", choices=["binary", "continuous"], default="binary",
-                   help="夹爪记录模式：binary（二值，默认）或 continuous（连续值）")
-    p.add_argument("--button-mode", choices=["binary", "continuous"], default="binary",
-                   help="SpaceMouse 按键控制模式：binary（二值，默认）或 continuous（按住逐步调节）；独立于 --gripper-mode")
+                   help="夹爪控制与记录模式：binary（二值，默认）或 continuous（连续值）")
     p.add_argument("--gripper-range", type=int, nargs=2, default=[0, 840],
                    metavar=("MIN", "MAX"),
                    help="夹爪原始位置范围：最小值为闭合位置，最大值为张开位置（默认：0 840）")
@@ -198,7 +196,7 @@ def main():
     sm_cfg = SpacemouseConfig(
         translation_scale=args.trans_scale,
         rotation_scale=args.rot_scale,
-        button_mode=args.button_mode,
+        button_mode=args.gripper_mode,
     )
     agent = SpacemouseAgent(config=sm_cfg)
 
