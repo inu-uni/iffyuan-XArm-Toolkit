@@ -12,6 +12,7 @@
 有限的 6 维偏置向量。回放会先复位到 Home，再按记录偏置移动，之后按序执行
 该 episode 的动作和夹爪数据。缺少偏置元数据时，该 episode 不会回退到其他开局移动方式。
 夹爪原始开合范围从同组的 ``gripper_range`` attribute 读取；缺失或无效时跳过该 episode。
+夹爪回放模式从同组的 ``gripper_mode`` attribute 读取；缺失时按旧数据的二值模式回放并提示。
 """
 
 from __future__ import annotations
@@ -214,6 +215,25 @@ def _episode_gripper_range(meta: zarr.Group | None, episode: Episode) -> tuple[i
     return int(bounds[0]), int(bounds[1])
 
 
+def _episode_gripper_mode(meta: zarr.Group | None, episode: Episode) -> str:
+    """Read the gripper encoding recorded for one episode."""
+    if meta is None or "episode_config" not in meta:
+        raise ValueError("数据集缺少 meta/episode_config，无法读取夹爪模式")
+    group_name = f"episode_{episode.label:06d}"
+    config_group = meta["episode_config"]
+    if group_name not in config_group:
+        raise ValueError(f"Episode {episode.label} 缺少 meta/episode_config/{group_name}")
+
+    mode = config_group[group_name].attrs.get("gripper_mode")
+    if mode is None:
+        print(f"[WARN] Episode {episode.label} 缺少 gripper_mode，按旧数据二值模式回放。")
+        return "binary"
+    mode = str(mode)
+    if mode not in ("binary", "continuous"):
+        raise ValueError(f"Episode {episode.label} 的 gripper_mode 无效: {mode!r}")
+    return mode
+
+
 def _stop_arm(env: XArmEnv):
     """尽力停止正在执行的运动；失败时再尝试 SDK 状态停止。"""
     try:
@@ -229,7 +249,7 @@ def _stop_arm(env: XArmEnv):
 
 
 def _replay(env: XArmEnv, data: zarr.Group, episode: Episode,
-            start_bias: np.ndarray,
+            start_bias: np.ndarray, gripper_mode: str,
             keyboard: KeyboardListener, hz: float, speed: float) -> bool:
     """按记录偏置定位开局，再回放一段数据；返回是否由 q 中断。
 
@@ -243,7 +263,11 @@ def _replay(env: XArmEnv, data: zarr.Group, episode: Episode,
 
     start_pose = env.reset_pose + start_bias
     print(f"Episode {episode.label} 起始位姿: {np.round(start_pose, 3).tolist()}")
-    print(f"夹爪原始范围（闭合、张开）: {list(env.gripper_range)}；回放指令使用 0/1。")
+    if gripper_mode == "binary":
+        print(f"[INFO] Episode {episode.label} 夹爪模式: binary；按 0.5 阈值回放为闭合/张开。")
+    else:
+        print(f"[INFO] Episode {episode.label} 夹爪模式: continuous；按记录的归一化值连续回放。")
+    print(f"夹爪原始范围（闭合、张开）: {list(env.gripper_range)}。")
     print("将先复位到 home，再移动至该起始位姿。按 q 中断当前回放。")
     confirm = input("确认机械臂周围安全并开始？[y/N]: ").strip().lower()
     if confirm != "y":
@@ -269,8 +293,10 @@ def _replay(env: XArmEnv, data: zarr.Group, episode: Episode,
             if key == "\x03":
                 raise KeyboardInterrupt
 
-            # 仅向 Env 发送归一化二值指令，由 Env 映射到本轮原始范围。
-            gripper_value = 0 if grippers[index] <= 0.5 else 1
+            # Env 接收归一化夹爪值，并映射到本轮原始范围。
+            gripper_value = (
+                0 if grippers[index] <= 0.5 else 1
+            ) if gripper_mode == "binary" else float(grippers[index])
             gripper_command = (
                 gripper_value if previous_gripper is None or gripper_value != previous_gripper
                 else None
@@ -332,6 +358,7 @@ def main():
             try:
                 start_bias = _episode_start_bias(meta, episode)
                 gripper_range = _episode_gripper_range(meta, episode)
+                gripper_mode = _episode_gripper_mode(meta, episode)
             except ValueError as exc:
                 print(f"\n[ERROR] {exc}")
                 continue
@@ -347,7 +374,8 @@ def main():
                 else:
                     env.gripper_range = gripper_range
                 interrupted = _replay(
-                    env, data, episode, start_bias, keyboard, args.hz, args.speed
+                    env, data, episode, start_bias, gripper_mode,
+                    keyboard, args.hz, args.speed
                 )
             except KeyboardInterrupt:
                 raise

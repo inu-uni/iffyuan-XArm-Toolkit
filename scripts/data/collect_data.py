@@ -36,11 +36,6 @@ python -m scripts.data.collect_data --coinft --coinft.port COM3 --dataset datase
   Enter   — 结束当前 episode
   Ctrl+C  — 优雅退出（已保存的 episode 完好）
 
-SpaceMouse
-----------
-  6D 移动    — 控制机械臂末端
-  左键(btn0) — 张开夹爪
-  右键(btn1) — 关闭夹爪
 """
 
 from __future__ import annotations

@@ -288,17 +288,6 @@ def verify(lerobot_path: str, repo_id: str):
         _print_array_stats("action", actions, ACTION_LABELS)
         all_warnings.extend(_check_anomalies("action", actions))
 
-        # action gripper 分布
-        gripper_col = actions[:, -1]
-        n_open = int(np.sum(gripper_col == 1))
-        n_close = int(np.sum(gripper_col == 0))
-        n_other = len(gripper_col) - n_open - n_close
-        print(f"\n  gripper_action 分布: close(0)={n_close}, open(1)={n_open}", end="")
-        if n_other > 0:
-            print(f", other={n_other}")
-        else:
-            print()
-
     # ── 可选传感器统计：沿用 state/action 的统计和异常检测 ──
     if all_forces:
         forces = np.stack(all_forces)
