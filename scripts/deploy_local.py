@@ -39,12 +39,13 @@ GRIPPER_THRESHOLD = 0.5           # ≤0.5 → 0 闭合, >0.5 → 1 张开
 
 # ── 工具函数 ──────────────────────────────────────────────
 
-def build_state(obs: dict) -> np.ndarray:
-    """构建 7 维状态: goal_pos(6) + gripper_binary(1)."""
+def build_state(obs: dict, gripper_mode: str = "binary") -> np.ndarray:
+    """构建 7 维状态: goal_pos(6) + 按模式编码的归一化夹爪值(1)."""
     goal_pos = np.asarray(obs["goal_pos"], dtype=np.float32)
-    gripper_raw = float(obs.get("gripper_position", 0))
-    gripper_binary = 0.0 if gripper_raw <= GRIPPER_THRESHOLD else 1.0
-    return np.concatenate([goal_pos, [gripper_binary]], dtype=np.float32)
+    gripper_position = float(obs.get("gripper_position", 0))
+    if gripper_mode == "binary":
+        gripper_position = 0.0 if gripper_position <= GRIPPER_THRESHOLD else 1.0
+    return np.concatenate([goal_pos, [gripper_position]], dtype=np.float32)
 
 
 def ensure_hwc(rgb) -> np.ndarray:
@@ -82,6 +83,8 @@ def main():
     parser.add_argument("--gripper-range", type=int, nargs=2, default=[0, 840],
                         metavar=("MIN", "MAX"),
                         help="夹爪原始位置范围：闭合位置与张开位置（默认：0 840）")
+    parser.add_argument("--gripper-mode", choices=["binary", "continuous"], default="binary",
+                        help="夹爪控制模式：binary（二值，默认）或 continuous（连续值）")
 
     # 控制参数
     parser.add_argument("--max-steps", type=int, default=800,
@@ -120,8 +123,8 @@ def main():
     obs = env.reset(close_gripper=False)
     logger.info("机械臂已复位，开始部署循环")
     logger.info("  指令: %s", args.instruction)
-    logger.info("  模式: %s | 频率: %.1f Hz | 最大步数: %d",
-                args.action_mode, args.hz, args.max_steps)
+    logger.info("  模式: %s | 夹爪: %s | 频率: %.1f Hz | 最大步数: %d",
+                args.action_mode, args.gripper_mode, args.hz, args.max_steps)
 
     try:
         for step_i in range(args.max_steps):
@@ -132,7 +135,7 @@ def main():
             rgb_fix = ensure_hwc(cam_fix.step()["rgb"])   # base
 
             # 构建状态
-            state = build_state(obs)
+            state = build_state(obs, args.gripper_mode)
 
             # 本地推理（直接调 policy，不走网络）
             result = policy.predict_action(
@@ -154,7 +157,10 @@ def main():
             arm_action = action[:6]
             gripper_action = None
             if len(action) > 6:
-                gripper_action = 0 if float(action[6]) <= GRIPPER_THRESHOLD else GRIPPER_MAX
+                gripper_input = float(action[6])
+                gripper_action = (
+                    0 if gripper_input <= GRIPPER_THRESHOLD else GRIPPER_MAX
+                ) if args.gripper_mode == "binary" else gripper_input
 
             # 执行
             obs = env.step(action=arm_action, gripper_action=gripper_action)
