@@ -46,6 +46,13 @@ print('ACT 可用')
 python scripts/data/collect_data.py --dataset datasets/act_pick2.zarr --episodes 30 --save-video
 ```
 
+夹爪记录默认是二值模式。若要训练连续夹爪模型，采集时指定 `--gripper-mode continuous`；该模式下鼠标连续调节开度，Zarr 的夹爪状态和动作保存为归一化 `0～1` 值：
+
+```bash
+python scripts/data/collect_data.py --gripper-mode continuous \
+    --dataset datasets/act_continuous_gripper.zarr --episodes 30
+```
+
 现在采集的是 Zarr 格式，先转换成LeRobot：
 
 ```bash
@@ -100,8 +107,8 @@ lerobot-record \
 |-------------|-------|------|------|
 | `observation.image` | (240, 320, 3) uint8 | 固定相机 L515 | 主视角 RGB |
 | `observation.wrist_image` | (240, 320, 3) uint8 | 臂上相机 D435i | 手腕视角 RGB |
-| `observation.state` | (7,) float32 | pos(6) + gripper_state(1) | 末端位姿 [x,y,z,r,p,y] + 夹爪 (0/1) |
-| `action` | (7,) float32 | action(6) + gripper_action(1) | delta EEF [dx,dy,dz,dr,dp,dy] + 夹爪 (0/1) |
+| `observation.state` | (7,) float32 | pos(6) + gripper_state(1) | 末端位姿 [x,y,z,r,p,y] + 夹爪值（二值 `0/1` 或连续 `0～1`） |
+| `action` | (7,) float32 | action(6) + gripper_action(1) | delta EEF [dx,dy,dz,dr,dp,dy] + 夹爪值（二值 `0/1` 或连续 `0～1`） |
 
 #### Zarr → LeRobot 字段映射详情
 
@@ -121,6 +128,8 @@ meta/episode_ends               →  episodes 元数据（LeRobot 自动管理�
 
 > `data/force` 存在时会转换为 LeRobot 特征 `observation.force`；`data/depth_arm` 和 `data/depth_fix` 目前未转换。保存或转换 force 不会自动让策略使用它：当前仓库的 `scripts/train_act.py` 会把该字段列入输入特征配置，但 ACT 模型前向只读取图像、`observation.state` 和 action，不读取 `observation.force`。若要训练力条件策略，需要额外修改模型输入和部署观测流程。
 
+Zarr 转换会把夹爪 state/action 的数值原样放入 LeRobot 的第七维，不会按阈值二值化。逐 episode 的 `gripper_mode` 元数据不会随转换复制；训练连续值数据后，部署端必须显式选择与训练数据一致的连续模式，避免部署时再把 state/action 转成 `0/1`。
+
 #### observation.state 各维度含义
 
 | 索引 | 名称 | 单位 | 来源 | 典型范围 |
@@ -131,7 +140,7 @@ meta/episode_ends               →  episodes 元数据（LeRobot 自动管理�
 | 3 | roll | rad | `env.goal_pos[3]` 末端 Roll | -π ~ π |
 | 4 | pitch | rad | `env.goal_pos[4]` 末端 Pitch | -π ~ π |
 | 5 | yaw | rad | `env.goal_pos[5]` 末端 Yaw | -π ~ π |
-| 6 | gripper | 0 or 1 | 夹爪状态 | 0=闭合, 1=张开 |
+| 6 | gripper | 归一化 `0～1` | 夹爪状态 | 二值模式仅为 `0/1`；连续模式保留中间值 |
 
 #### action 各维度含义
 
@@ -143,7 +152,7 @@ meta/episode_ends               →  episodes 元数据（LeRobot 自动管理�
 | 3 | droll | rad | SpaceMouse delta Roll | 单步旋转增量 |
 | 4 | dpitch | rad | SpaceMouse delta Pitch | 单步旋转增量 |
 | 5 | dyaw | rad | SpaceMouse delta Yaw | 单步旋转增量 |
-| 6 | gripper | 0 or 1 | 夹爪动作 | 0=闭合, 1=张开 |
+| 6 | gripper | 归一化 `0～1` | 夹爪动作 | 二值模式仅为 `0/1`；连续模式保留中间值 |
 
 #### 转换后磁盘文件结构
 

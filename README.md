@@ -185,6 +185,9 @@ python scripts/data/collect_data.py --start-bias 0 0 -200 --episodes 10 --datase
 # 带随机偏移（每个 episode 起始位置不同）
 python scripts/data/collect_data.py --start-bias 0 0 -200 --random-bias-x -50 70 --random-bias-y -20 10 --dataset datasets/plug.zarr
 
+# 连续夹爪控制与记录
+python scripts/data/collect_data.py --gripper-mode continuous --dataset datasets/continuous_gripper.zarr
+
 # 夹爪状态与动作固定记录为闭合（stamp 类任务）
 python scripts/data/collect_data.py --start-bias 0 0 -270 --gripper-closed --dataset datasets/stamp.zarr
 
@@ -234,8 +237,8 @@ python scripts/data/verify_lerobot.py --path lerobot_datasets/demo --repo-id dem
 |---|---|---|
 | `observation.image` | rgb_fix（固定相机） | (H, W, 3) uint8 |
 | `observation.wrist_image` | rgb_arm（臂上相机） | (H, W, 3) uint8 |
-| `observation.state` | pos(6) + gripper_state(1) | (7,) float32 |
-| `action` | action(6) + gripper_action(1) | (7,) float32 |
+| `observation.state` | pos(6) + gripper_state(1) | (7,) float32；夹爪为二值 `0/1` 或连续 `0～1` |
+| `action` | action(6) + gripper_action(1) | (7,) float32；夹爪为二值 `0/1` 或连续 `0～1` |
 
 > 输出目录已存在时自动覆盖。`--task` 不指定则默认使用 zarr 文件名。
 
@@ -269,6 +272,8 @@ python scripts/deploy_vla.py \
 
 > ⚠️ **安全提醒:** 先用 `--max-steps 5` 小步测试，手放在急停按钮上。
 
+使用连续夹爪数据训练的模型，机器人端部署需加 `--gripper-mode continuous`。`scripts/deploy_local.py` 同样支持该参数；两者默认均为 `binary`。`deploy_diffusion.py` 当前仍只支持二值夹爪。
+
 ---
 
 ## 核心概念速查
@@ -284,8 +289,9 @@ python scripts/deploy_vla.py \
 ### 夹爪接口
 
 - `XArmEnv(gripper_range=(MIN, MAX), initial_gripper_position=1.0)`：原始范围默认 `(0, 840)`。
-- `env.step(..., gripper_action=0/1)`：闭合/张开，`None` 不操作；Env 也接受 `0～1` 中间值。
+- `env.step(..., gripper_action=...)`：接收归一化 `0～1` 夹爪目标，`0` 为闭合端、`1` 为张开端，`None` 不操作；Env 不负责二值化。
 - 采集及 VLA/本地部署入口使用 `--gripper-range MIN MAX`；Diffusion 使用配置键 `gripper_range: [MIN, MAX]`。
+- `collect_data.py` 的 `--gripper-mode binary|continuous` 同时控制 SpaceMouse 夹爪按键行为和数据记录；VLA/本地部署也使用同名参数选择 state/action 处理方式。
 
 ### Observation 字典
 
@@ -299,6 +305,8 @@ python scripts/deploy_vla.py \
 | `raw_force` | `np.ndarray (6,)` 或 `None` | 原始力传感器读数 |
 | `goal_pos` | `np.ndarray (6,)` | 当前目标位姿 |
 | `gripper_position` | `np.ndarray` | 归一化夹爪位置（0=闭合端，1=张开端） |
+| `gripper_raw_position` | `np.ndarray` | SDK 原始夹爪反馈位置（零维整数数组） |
+| `gripper_raw_action` | `np.ndarray` 或 `None` | `step()` 中映射后的原始夹爪目标；未下发夹爪动作时为 `None` |
 
 ### SpaceMouse 灵敏度参数
 
@@ -320,19 +328,21 @@ dataset.zarr/
 │   ├── pos            # (N, 6) float32 — 末端位姿
 │   ├── force          # (N, 6) float32 — 力传感器
 │   ├── action         # (N, 6) float32 — SpaceMouse 动作
-│   ├── gripper_state  # (N, 1) float32 — 夹爪状态 (0/1)
-│   ├── gripper_action # (N, 1) float32 — 夹爪目标动作 (0/1)
+│   ├── gripper_state  # (N, 1) float32 — 夹爪状态（二值 0/1 或连续 0～1）
+│   ├── gripper_action # (N, 1) float32 — 夹爪目标（二值 0/1 或连续 0～1）
+│   ├── gripper_raw_position # (N, 1) int32 — SDK 原始夹爪反馈
+│   ├── gripper_raw_action   # (N, 1) int32 — 映射后的 SDK 原始夹爪目标
 │   └── episode        # (N,) uint16 — episode 编号
 └── meta/
     ├── episode_ends   # (M,) uint32 — 各 episode 的结束索引
     └── episode_config/
         └── episode_XXXXXX/  # attributes: episode_index、start_bias、start_bias_base、
-                             # random_bias_ranges、gripper_always_closed、gripper_range
+                             # random_bias_ranges、gripper_always_closed、gripper_mode、gripper_range
 ```
 
 > `--cam-mode rgb` 时不创建 `depth_arm` / `depth_fix`。
 
-`meta/episode_config/episode_XXXXXX.attrs["gripper_range"]` 保存该轮原始夹爪范围 `[MIN, MAX]`，默认 `[0, 840]`，来自 `--gripper-range`。配置在 episode 确认保存后写入；完整字段及读取示例见 [Zarr Meta 采集配置](docs/04-遥操作与数据采集.md#311-meta-采集配置)。
+`meta/episode_config/episode_XXXXXX.attrs` 保存本轮 `gripper_range` 和 `gripper_mode`。回放按 `gripper_mode` 区分二值阈值回放与连续原值回放；转换到 LeRobot 时，夹爪 state/action 数值会保留，但这些逐 episode 配置和 SDK 原始值数组不会转换。完整字段及读取示例见 [Zarr Meta 采集配置](docs/04-遥操作与数据采集.md#311-meta-采集配置)。
 
 ## 项目结构
 
@@ -344,7 +354,7 @@ iffyuan-XArm-Toolkit/
 │   │   └── realsense_env.py    # RealSense D435i + L515 封装
 │   ├── teleop/
 │   │   ├── spacemouse_expert.py # SERL SpaceMouseExpert（原文件，勿改）
-│   │   └── spacemouse.py       # SpacemouseAgent — 缩放/重映射/夹爪切换
+│   │   └── spacemouse.py       # SpacemouseAgent — 缩放/重映射/二值与连续夹爪控制
 │   ├── collect/
 │   │   └── collector.py        # Collector — env + cameras + teleop → Zarr
 │   ├── deploy/

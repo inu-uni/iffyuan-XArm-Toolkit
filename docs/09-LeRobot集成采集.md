@@ -348,7 +348,7 @@ action = frame["action"]             # [dx, dy, dz, droll, dpitch, dyaw, gripper
 | **遥操作** | SpaceMouse 6DOF + 键盘控制 | SpaceMouse 6DOF（通过内置适配器） |
 | **Episode 控制** | 空格开始/Enter 结束 | LeRobot 内置流程 |
 | **增量追加** | ✅ | ✅ |
-| **夹爪录制逻辑** | 左右键独立控制 + gripper_always_closed | 左键切换开/关 |
+| **夹爪录制逻辑** | `--gripper-mode binary` 时左键切换；`continuous` 时左键按住闭合、右键按住张开；支持 `gripper_always_closed` 记录配置 | 左键切换开/关 |
 
 ### 选择建议
 
