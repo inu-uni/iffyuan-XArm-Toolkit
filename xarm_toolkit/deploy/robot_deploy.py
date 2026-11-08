@@ -27,16 +27,14 @@ from xarm_toolkit.utils.logger import get_logger
 
 logger = get_logger("xarm_toolkit.deploy.robot_deploy")
 
-GRIPPER_MAX = 1
 GRIPPER_THRESHOLD = 0.5  # 与 Collector 一致的二值阈值
 
 
-def build_state(obs: dict) -> np.ndarray:
-    """Build 7-dim state: goal_pos(6) + gripper_binary(1).
+def build_state(obs: dict, gripper_mode: str = "binary") -> np.ndarray:
+    """Build 7-dim state: goal_pos(6) + gripper(1).
 
-    与 Collector 采集时完全一致：
     - pos = ``goal_pos``（commanded 目标位姿，非 cart_pos 反馈）
-    - gripper = 二值 0/1（≤0.5 → 0 闭合, >0.5 → 1 张开）
+    - gripper = 按 ``gripper_mode`` 编码的归一化夹爪值
 
     Parameters
     ----------
@@ -50,9 +48,10 @@ def build_state(obs: dict) -> np.ndarray:
         Shape (7,), float32.
     """
     goal_pos = np.asarray(obs["goal_pos"], dtype=np.float32)
-    gripper_position = float(obs.get("gripper_position", 0))
-    gripper_binary = 0.0 if gripper_position <= GRIPPER_THRESHOLD else 1.0
-    return np.concatenate([goal_pos, [gripper_binary]], dtype=np.float32)
+    gripper_position = float(obs["gripper_position"])
+    if gripper_mode == "binary":
+        gripper_position = 0.0 if gripper_position <= GRIPPER_THRESHOLD else 1.0
+    return np.concatenate([goal_pos, [gripper_position]], dtype=np.float32)
 
 
 def _ensure_hwc(rgb) -> np.ndarray:
@@ -84,6 +83,9 @@ class XArmDeployer:
         Control frequency.
     action_mode : str
         How to interpret the model's action output.
+    gripper_mode : str
+        How to interpret the model's gripper state and action: ``binary`` or
+        ``continuous``.
     """
 
     def __init__(
@@ -97,6 +99,7 @@ class XArmDeployer:
         server_port: int = 10093,
         instruction: str = "",
         action_mode: str = "delta_eef",
+        gripper_mode: str = "binary",
         max_steps: int = 800,
         hz: float = 10.0,
         speed: float = 100.0,
@@ -108,6 +111,7 @@ class XArmDeployer:
         self.hz = hz
         self.speed = speed
         self.action_mode = action_mode
+        self.gripper_mode = gripper_mode
         self.env = env
         self.cam_arm = cam_arm
         self.cam_fix = cam_fix
@@ -145,7 +149,7 @@ class XArmDeployer:
                 rgb_fix = _ensure_hwc(self.cam_fix.step()["rgb"])   # base
 
                 # ---- Build state: cart_pos(6) + gripper(1) ----
-                state = build_state(obs)
+                state = build_state(obs, self.gripper_mode)
 
                 # ---- Read optional dual CoinFT wrench ----
                 coinft_left = None
@@ -185,12 +189,14 @@ class XArmDeployer:
 
                 # 前 6 维: delta EEF [dx, dy, dz, dr, dp, dy]
                 arm_action = action[:6]
-                # 第 7 维：归一化夹爪动作，>0.5 → 1 张开，≤0.5 → 0 闭合。
+                # 第 7 维：归一化夹爪动作，按 binary/continuous 模式处理。
                 gripper_input = None
                 gripper_action = None
                 if len(action) > 6:
                     gripper_input = float(action[6])
-                    gripper_action = GRIPPER_MAX if gripper_input > GRIPPER_THRESHOLD else 0
+                    gripper_action = (
+                        0.0 if gripper_input <= GRIPPER_THRESHOLD else 1.0
+                    ) if self.gripper_mode == "binary" else gripper_input
 
                 if self.debug:
                     logger.info(

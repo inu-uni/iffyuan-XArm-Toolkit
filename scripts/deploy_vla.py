@@ -49,6 +49,8 @@ def main():
     parser.add_argument("--gripper-range", type=int, nargs=2, default=[0, 840],
                         metavar=("MIN", "MAX"),
                         help="夹爪原始位置范围：闭合位置与张开位置（默认：0 840）")
+    parser.add_argument("--gripper-mode", choices=["binary", "continuous"], default="binary",
+                        help="夹爪控制模式：binary（二值，默认）或 continuous（连续值）")
     parser.add_argument("--debug", action="store_true",
                         help="Print per-step actions and pre-action end-effector poses")
     args = parser.parse_args()
@@ -85,6 +87,7 @@ def main():
             server_port=args.server_port,
             instruction=args.instruction,
             action_mode=args.action_mode,
+            gripper_mode=args.gripper_mode,
             max_steps=args.max_steps,
             hz=args.hz,
             speed=args.speed,
