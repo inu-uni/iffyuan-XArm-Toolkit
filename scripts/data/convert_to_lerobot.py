@@ -99,9 +99,6 @@ def convert(
     except ImportError:
         from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 
-    if task_name is None:
-        task_name = Path(zarr_path).stem
-
     # --- 读取 Zarr ---
     store = zarr.open(str(zarr_path), "r")
     data = store["data"]
@@ -262,11 +259,15 @@ def main():
     parser.add_argument("--repo-id", required=True, help="数据集 repo ID")
     parser.add_argument("--fps", type=int, default=15, help="帧率 (默认 15)")
     parser.add_argument("--robot-type", default="xarm6", help="机器人类型 (默认 xarm6)")
-    parser.add_argument("--task", default=None, help="任务描述 (默认使用 zarr 文件名)")
+    parser.add_argument("--task", required=True, help="必填的任务描述")
     parser.add_argument("--episodes", type=int, default=None,
                         help="只转换前 N 个 episode (跳过后面不完整的数据)")
 
     args = parser.parse_args()
+    if not args.task.strip():
+        print("[ERROR] --task 任务描述不能为空。")
+        sys.exit(1)
+
     _check_deps()
 
     if not Path(args.input).exists():

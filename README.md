@@ -240,7 +240,7 @@ python scripts/data/verify_lerobot.py --path lerobot_datasets/demo --repo-id dem
 | `observation.state` | pos(6) + gripper_state(1) | (7,) float32；夹爪为二值 `0/1` 或连续 `0～1` |
 | `action` | action(6) + gripper_action(1) | (7,) float32；夹爪为二值 `0/1` 或连续 `0～1` |
 
-> 输出目录已存在时自动覆盖。`--task` 不指定则默认使用 zarr 文件名。
+> 输出目录已存在时自动覆盖。`--task` 必须提供非空任务描述。
 
 ---
 

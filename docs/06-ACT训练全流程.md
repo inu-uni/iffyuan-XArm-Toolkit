@@ -64,6 +64,8 @@ python scripts/data/convert_to_lerobot.py \
     --task "pick up the orange toy and place it to the plate"
 ```
 
+`--task` 必须提供非空任务描述；省略该参数或传入空内容会报错退出，不会使用 Zarr 文件名作为默认任务。
+
 然后验证数据集格式对不对：
 
 ```bash
