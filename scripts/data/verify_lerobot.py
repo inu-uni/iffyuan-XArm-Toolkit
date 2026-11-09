@@ -115,6 +115,9 @@ def verify(lerobot_path: str, repo_id: str):
     print(f"  frames:     {n_frames}")
     print(f"  episodes:   {n_episodes}")
     print(f"  tasks:      {n_tasks}")
+    print(f"  数据字段 ({len(dataset.features)}):")
+    for feature_name in dataset.features:
+        print(f"    - {feature_name}")
     if dataset.fps > 0:
         total_sec = n_frames / dataset.fps
         print(f"  总时长:     {total_sec:.1f}s ({total_sec / 60:.1f}min)")
