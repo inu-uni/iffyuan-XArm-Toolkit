@@ -34,7 +34,33 @@ from xarm_toolkit.sensors.coinft.coinft_interface import (
 
 左右输出均为 `[Fx, Fy, Fz, Mx, My, Mz]`，前三项单位 N，后三项单位 Nm。以 `wrench_valid` 判断载荷有效性；`zero_check_warning` 为独立警告。
 
-底层接收文件保持原样。现已增加独立 `CoinFTEnv`、后台接收和可选 Collector 接入，使用方式见下方对应章节；GUI 集成尚未实现。
+底层接收文件保持原样。项目还移植了 CoinFT 的实时可视化脚本，位于仓库根目录的 `tests/`；它们独立读取串口并绘图，不属于 `CoinFTEnv` 或 Collector 的 GUI。
+
+## 实时可视化
+
+可视化需要电脑有图形桌面，并安装 `matplotlib` 和 `pyserial`。在仓库根目录运行，`COM3` 替换为 CoinFT Teensy 对应的串口：
+
+```powershell
+pip install matplotlib pyserial
+
+# 左右传感器分别显示：每侧一个图，力和力矩使用不同纵轴
+python tests/plot_coinft_dual_wrench.py --port COM3
+
+# 六个分量分别显示：每个子图对比左右传感器
+python tests/plot_coinft_axis_compare.py --port COM3
+```
+
+Linux 下串口参数可写成设备路径，例如 `--port /dev/ttyACM0`。可选参数如下：
+
+| 参数 | 默认值 | 作用 |
+| --- | --- | --- |
+| `--baud` | `115200` | 串口波特率。 |
+| `--history` | `5.0` | 图表横轴显示的历史秒数。 |
+| `--no-start-command` | 关闭 | 不发送启动/归零命令，附着到已运行的数据流。 |
+
+默认启动会向 Teensy 发出启动流命令并触发设备端归零；归零时保持传感器空载、静止。首次上电归零通常需要约 28–30 秒，后续归零通常约 3 秒。`plot_coinft_dual_wrench.py` 窗口左下角有 **Tare** 按钮，可重新触发归零；`plot_coinft_axis_compare.py` 不提供该按钮。关闭窗口或按 `Ctrl+C` 退出。默认启动的会话退出时会停止数据流；使用 `--no-start-command` 时，如果没有在 dual-wrench 窗口点 **Tare**，退出时不会发送停止命令。串口同一时间只能由一个程序独占，运行可视化前应先关闭采集脚本或其他串口工具。
+
+共享实现位于 `tests/_coinft_live_plot.py`。它复用本仓库的 `CoinFTInterface` 读取和解析数据，图表使用英文标签；可视化会显示校准/错误状态、有效帧数、估算频率和丢帧信息。它用于实时查看传感器数据，不会保存图像或测量数据文件。
 
 ## protocol.py：帧格式与解析机制
 
