@@ -88,6 +88,7 @@ class VLAClient:
                 if resp.get("status") == "ok":
                     self.metadata = resp.get("data", {})
                     logger.info("Connected. Server metadata: %s", self.metadata)
+                    self._reset_policy()
                 return
 
             except Exception as exc:
@@ -102,6 +103,18 @@ class VLAClient:
                     elapsed, exc, self.reconnect_interval,
                 )
                 time.sleep(self.reconnect_interval)
+
+    def _reset_policy(self):
+        """Reset server-side policy state for this new deployment connection."""
+        self._ws.send(packb({"type": "reset"}))
+        resp = unpackb(self._ws.recv())
+        if resp.get("status") == "error":
+            err = resp.get("error", {})
+            raise RuntimeError(
+                f"Server policy reset failed: {err.get('message', 'unknown')} — "
+                f"{err.get('detail', '')}"
+            )
+        logger.info("Server policy state reset.")
 
     def _ensure_connected(self):
         """Reconnect if the socket is closed."""
