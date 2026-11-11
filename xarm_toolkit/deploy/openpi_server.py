@@ -165,6 +165,11 @@ class Pi05XArmPolicy:
         logger.info("Inference done, actions shape: %s", actions.shape)
         return {"actions": np.asarray(actions, dtype=np.float32)}
 
+    def reset(self):
+        """Clear the OpenPI policy's inference state for a new run."""
+        self.policy.reset()
+        logger.info("Policy state reset.")
+
 
 def _ensure_hwc(img: np.ndarray) -> np.ndarray:
     """Ensure image is HWC uint8 (openpi 内部自行 resize)."""

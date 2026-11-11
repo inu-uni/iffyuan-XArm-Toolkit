@@ -123,6 +123,15 @@ class VLAServer:
                 if msg_type == "ping":
                     await ws.send(_ok_response({"type": "pong"}))
 
+                elif msg_type == "reset":
+                    try:
+                        self.policy.reset()
+                        await ws.send(_ok_response({"type": "reset"}))
+                    except Exception as exc:
+                        tb = traceback.format_exc()
+                        logger.error("Policy reset error: %s\n%s", exc, tb)
+                        await ws.send(_error_response("reset_error", str(exc)))
+
                 elif msg_type == "infer":
                     try:
                         # Strip "type" key, pass everything else to policy
