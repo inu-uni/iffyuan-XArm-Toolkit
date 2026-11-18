@@ -23,7 +23,7 @@ ER Group XArm 6 机械臂工具包，包含真机控制、相机采集、遥操�
 | [02-机械臂控制](docs/02-机械臂控制.md) | XArmEnv 接口、三种控制模式、夹爪控制、力传感器 |
 | [03-相机系统](docs/03-相机系统.md) | RealsenseEnv 接口、RGB/RGBD/点云模式、双相机配置 |
 | [04-遥操作与数据采集](docs/04-遥操作与数据采集.md) | SpaceMouse 映射、Collector 采集流程、Zarr 数据格式、CoinFT 可选采集 |
-| [05-数据验证](docs/05-数据验证.md) | Zarr 数据检查、回放、episode 元数据与夹爪范围 |
+| [05-数据回放与转换](docs/05-数据回放与转换.md) | Zarr 数据检查、机械臂回放和交互式 LeRobot 转换 |
 | [06-ACT 训练全流程](docs/06-ACT训练全流程.md) | Zarr→LeRobot 转换、ACT 训练、推理部署、参数速查 |
 | [07-模型部署](docs/07-模型部署.md) | VLAServer/Client 架构、Pi0.5 openpi 部署、推理流程 |
 | [08-故障排除](docs/08-故障排除.md) | 常见错误、硬件排查、网络问题 |
@@ -223,17 +223,17 @@ cd lerobot && pip install -e . && cd ..
 ```bash
 python scripts/data/convert_to_lerobot.py \
     --input datasets/demo.zarr \
-    --output lerobot_datasets/demo \
-    --repo-id demo --fps 15 \
-    --task "pick up the red block"
+    --output lerobot_datasets/demo
 ```
+
+启动后交互填写 repo ID、fps、robot type 和非空 task，再选择轮次和转换字段。fps 默认 30；输入输出目录、字段选择及完整交互流程见[数据回放与转换](docs/05-数据回放与转换.md#数据转换)。
 
 **验证:**
 ```bash
 python scripts/data/verify_lerobot.py --path lerobot_datasets/demo --repo-id demo
 ```
 
-**LeRobot 字段映射:**
+**可选择的 LeRobot 字段映射:**
 
 | LeRobot key | 来源 | shape |
 |---|---|---|
@@ -241,8 +241,10 @@ python scripts/data/verify_lerobot.py --path lerobot_datasets/demo --repo-id dem
 | `observation.wrist_image` | rgb_arm（臂上相机） | (H, W, 3) uint8 |
 | `observation.state` | pos(6) + gripper_state(1) | (7,) float32；夹爪为二值 `0/1` 或连续 `0～1` |
 | `action` | action(6) + gripper_action(1) | (7,) float32；夹爪为二值 `0/1` 或连续 `0～1` |
+| `observation.force` | force | (6,) float32 |
+| `observation.coinft_left` / `observation.coinft_right` | coinft_left / coinft_right | 各 (6,) float32 |
 
-> 输出目录已存在时自动覆盖。`--task` 必须提供非空任务描述。
+> 输出目录已存在时，选择覆盖并在最终确认开始后才会删除旧目录。
 
 ---
 
@@ -344,7 +346,7 @@ dataset.zarr/
 
 > `--cam-mode rgb` 时不创建 `depth_arm` / `depth_fix`。
 
-`meta/episode_config/episode_XXXXXX.attrs` 保存本轮 `gripper_range` 和 `gripper_mode`。回放按 `gripper_mode` 区分二值阈值回放与连续原值回放；转换到 LeRobot 时，夹爪 state/action 数值会保留，但这些逐 episode 配置和 SDK 原始值数组不会转换。完整字段及读取示例见 [Zarr Meta 采集配置](docs/04-遥操作与数据采集.md#311-meta-采集配置)。
+`meta/episode_config/episode_XXXXXX.attrs` 保存本轮 `gripper_range` 和 `gripper_mode`。回放按 `gripper_mode` 区分二值阈值回放与连续原值回放；转换到 LeRobot 并选择对应 state/action 组合时，夹爪数值会保留，但这些逐 episode 配置和 SDK 原始值数组不会转换。完整字段及读取示例见 [Zarr Meta 采集配置](docs/04-遥操作与数据采集.md#311-meta-采集配置)。
 
 ## 项目结构
 

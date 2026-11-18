@@ -58,13 +58,10 @@ python scripts/data/collect_data.py --gripper-mode continuous \
 ```bash
 python scripts/data/convert_to_lerobot.py \
     --input datasets/act_pick2.zarr \
-    --output lerobot_datasets/act_pick2 \
-    --repo-id xarm6_act_pick2 \
-    --fps 15 \
-    --task "pick up the orange toy and place it to the plate"
+    --output lerobot_datasets/act_pick2
 ```
 
-`--task` 必须提供非空任务描述；省略该参数或传入空内容会报错退出，不会使用 Zarr 文件名作为默认任务。
+启动后按提示交互输入 repo ID（本例为 `xarm6_act_pick2`）、fps、robot type 和非空任务描述，并选择轮次和需要的字段。默认 fps 为 30；详细操作见[数据回放与转换](05-数据回放与转换.md#数据转换)。
 
 然后验证数据集格式对不对：
 
@@ -103,7 +100,7 @@ lerobot-record \
 
 ### 3.3 数据特征映射
 
-无论哪种方案，最终的 LeRobot v3 数据集特征一致：
+下表列出本训练流程需要的主要 LeRobot v3 数据集特征；Zarr 转换时需选择相应字段：
 
 | LeRobot 特征 | shape | 来源 | 说明 |
 |-------------|-------|------|------|
@@ -123,14 +120,16 @@ data/pos      (N, 6)            ┐
 data/gripper_state (N, 1)       ┘→ observation.state      (7,)          concat([pos, gripper_state])
 data/action   (N, 6)            ┐
 data/gripper_action (N, 1)      ┘→ action                 (7,)          concat([action, gripper_action])
-data/force (N, 6)               → observation.force (6,)              仅源 Zarr 启用了 --force 时存在
+data/force (N, 6)               → observation.force (6,)              源字段存在且选择时转换
+data/coinft_left (N, 6)         → observation.coinft_left (6,)        源字段存在且选择时转换
+data/coinft_right (N, 6)        → observation.coinft_right (6,)       源字段存在且选择时转换
 meta/episode_ends               →  episodes 元数据（LeRobot 自动管理）
-                                →  task: str                             --task 参数传入
+                                →  task: str                             交互输入任务描述
 ```
 
-> `data/force` 存在时会转换为 LeRobot 特征 `observation.force`；`data/depth_arm` 和 `data/depth_fix` 目前未转换。保存或转换 force 不会自动让策略使用它：当前仓库的 `scripts/train_act.py` 会把该字段列入输入特征配置，但 ACT 模型前向只读取图像、`observation.state` 和 action，不读取 `observation.force`。若要训练力条件策略，需要额外修改模型输入和部署观测流程。
+> `data/force` 存在且被选择时会转换为 LeRobot 特征 `observation.force`；`data/depth_arm` 和 `data/depth_fix` 目前未转换。保存或转换 force 不会自动让策略使用它：当前仓库的 `scripts/train_act.py` 会把该字段列入输入特征配置，但 ACT 模型前向只读取图像、`observation.state` 和 action，不读取 `observation.force`。若要训练力条件策略，需要额外修改模型输入和部署观测流程。
 
-Zarr 转换会把夹爪 state/action 的数值原样放入 LeRobot 的第七维，不会按阈值二值化。逐 episode 的 `gripper_mode` 元数据不会随转换复制；训练连续值数据后，部署端必须显式选择与训练数据一致的连续模式，避免部署时再把 state/action 转成 `0/1`。
+选择相应 state/action 组合时，Zarr 转换会把夹爪数值原样放入 LeRobot 的第七维，不会按阈值二值化。逐 episode 的 `gripper_mode` 元数据不会随转换复制；训练连续值数据后，部署端必须显式选择与训练数据一致的连续模式，避免部署时再把 state/action 转成 `0/1`。
 
 #### observation.state 各维度含义
 
