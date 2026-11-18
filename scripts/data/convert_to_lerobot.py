@@ -6,6 +6,7 @@ Usage: python scripts/data/convert_to_lerobot.py --input DATA.zarr --output OUTP
 from __future__ import annotations
 
 import argparse
+import readline  # 为终端 input() 提供光标移动和编辑功能。
 import shutil
 import sys
 import time
