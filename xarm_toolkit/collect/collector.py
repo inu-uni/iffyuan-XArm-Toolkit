@@ -59,6 +59,10 @@ class _KeyboardListener:
     def start(self):
         import tty
         tty.setraw(sys.stdin.fileno())
+        # raw mode disables output processing; restore normal newline handling.
+        settings = self._termios.tcgetattr(sys.stdin)
+        settings[1] |= self._termios.OPOST | self._termios.ONLCR
+        self._termios.tcsetattr(sys.stdin, self._termios.TCSANOW, settings)
 
     def stop(self):
         self._termios.tcsetattr(sys.stdin, self._termios.TCSADRAIN, self._old_settings)
@@ -847,7 +851,7 @@ class Collector:
                     fz = force[2] if obs["ext_force"] is not None else 0
                     print(
                         f"\r\n  Step {steps:5d} | FPS {fps:.1f} | "
-                        f"force_z {fz:.1f} | gripper {obs['gripper_position']:.0f}\r\n"
+                        f"force_z {fz:.1f} | gripper {obs['gripper_position']:.3f}\r\n"
                     )
 
         finally:
